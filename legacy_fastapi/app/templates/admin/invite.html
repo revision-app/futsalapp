@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}管理者招待 | REVISION{% endblock %}
+{% block content %}
+
+<div class="mb-4">
+  <a href="/admin/dashboard" class="text-green-600 text-sm hover:underline">← ダッシュボードに戻る</a>
+</div>
+
+<div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+  <h1 class="text-lg font-bold text-gray-800 mb-2">管理者を招待する</h1>
+  <p class="text-sm text-gray-500 mb-4">招待メールを送信します。受信者は招待リンクから管理者アカウントを作成できます。</p>
+
+  <form method="post" action="/admin/invite" class="space-y-4">
+    <div>
+      <label class="block text-sm font-medium text-gray-600 mb-1">招待先メールアドレス</label>
+      <input type="email" name="email"
+        class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+        placeholder="admin@example.com" required />
+    </div>
+    <button type="submit"
+      class="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2.5 rounded-lg transition">
+      招待メールを送信する
+    </button>
+  </form>
+</div>
+{% endblock %}

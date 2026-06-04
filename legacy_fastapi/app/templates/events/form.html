@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}{% if event %}イベント編集{% else %}イベント作成{% endif %} | REVISION{% endblock %}
+{% block content %}
+
+<div class="mb-4">
+  <a href="/events" class="text-green-600 text-sm hover:underline">← 一覧に戻る</a>
+</div>
+
+<div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+  <h1 class="text-lg font-bold text-gray-800 mb-4">
+    {% if event %}イベントを編集{% else %}新しいイベントを作成{% endif %}
+  </h1>
+
+  <form method="post" action="{% if event %}/events/{{ event.id }}/edit{% else %}/events/new{% endif %}" class="space-y-4">
+    <div>
+      <label class="block text-sm font-medium text-gray-600 mb-1">タイトル <span class="text-red-500">*</span></label>
+      <input type="text" name="title" value="{{ event.title if event else '' }}"
+        class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+        placeholder="例: 第12回練習" required />
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-600 mb-1">シーズン <span class="text-red-500">*</span></label>
+      <select name="season_id" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" required>
+        <option value="">シーズンを選択</option>
+        {% for season in seasons %}
+        <option value="{{ season.id }}" {% if event and event.season_id == season.id %}selected{% endif %}>
+          {{ season.name }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-600 mb-1">種別 <span class="text-red-500">*</span></label>
+      <div class="flex gap-2">
+        {% for et in EventType %}
+        <label class="flex-1 cursor-pointer">
+          <input type="radio" name="event_type" value="{{ et.value }}" class="sr-only peer"
+            {% if event and event.event_type == et %}checked{% elif loop.first and not event %}checked{% endif %} />
+          <div class="text-center border border-gray-300 rounded-lg py-2 text-sm peer-checked:bg-green-600 peer-checked:text-white peer-checked:border-green-600 transition">
+            {{ et.label }}
+          </div>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-600 mb-1">日時 <span class="text-red-500">*</span></label>
+      {# hidden input に結合した値を入れてサブミット #}
+      <input type="hidden" name="event_date" id="event_date" required />
+      <div class="flex gap-2">
+        <input type="date" id="ed_date"
+          value="{{ (event.event_date | to_jst).strftime('%Y-%m-%d') if event else '' }}"
+          class="flex-1 border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+          required />
+        <select id="ed_hour"
+          class="w-24 border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+          {% for h in range(24) %}
+          <option value="{{ '%02d'|format(h) }}"
+            {% if event and (event.event_date | to_jst).hour == h %}selected{% endif %}>
+            {{ '%02d'|format(h) }}時
+          </option>
+          {% endfor %}
+        </select>
+        <select id="ed_minute"
+          class="w-24 border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+          {% for m in [0, 15, 30, 45] %}
+          <option value="{{ '%02d'|format(m) }}"
+            {% if event and (event.event_date | to_jst).minute == m %}selected{% endif %}>
+            {{ '%02d'|format(m) }}分
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-600 mb-1">場所</label>
+      <input type="text" name="location" value="{{ event.location if event else '' }}"
+        class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+        placeholder="例: ○○フットサルパーク" />
+    </div>
+
+    <button type="submit"
+      class="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2.5 rounded-lg transition">
+      {% if event %}更新する{% else %}作成する{% endif %}
+    </button>
+  </form>
+</div>
+
+<script>
+  // フォーム送信前に日付・時・分を結合して hidden input にセット
+  document.querySelector('form').addEventListener('submit', function () {
+    const date   = document.getElementById('ed_date').value;
+    const hour   = document.getElementById('ed_hour').value;
+    const minute = document.getElementById('ed_minute').value;
+    document.getElementById('event_date').value = `${date}T${hour}:${minute}`;
+  });
+</script>
+{% endblock %}

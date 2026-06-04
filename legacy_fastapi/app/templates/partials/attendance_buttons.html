@@ -1,0 +1,27 @@
+{# イベント詳細ページ用: 3択ボタン（HTMX） #}
+<div class="flex gap-2">
+  <button
+    hx-post="/attendance/{{ event_id }}/set/attending"
+    hx-target="#attendance-buttons"
+    hx-swap="innerHTML"
+    class="flex-1 py-2.5 rounded-lg text-sm font-semibold transition border
+      {% if att and att.status.value == 'attending' %}bg-green-600 text-white border-green-600{% else %}bg-white text-green-600 border-green-300 hover:bg-green-50{% endif %}">
+    参加 ✓
+  </button>
+  <button
+    hx-post="/attendance/{{ event_id }}/set/absent"
+    hx-target="#attendance-buttons"
+    hx-swap="innerHTML"
+    class="flex-1 py-2.5 rounded-lg text-sm font-semibold transition border
+      {% if att and att.status.value == 'absent' %}bg-red-500 text-white border-red-500{% else %}bg-white text-red-500 border-red-300 hover:bg-red-50{% endif %}">
+    欠席
+  </button>
+  <button
+    hx-post="/attendance/{{ event_id }}/set/pending"
+    hx-target="#attendance-buttons"
+    hx-swap="innerHTML"
+    class="flex-1 py-2.5 rounded-lg text-sm font-semibold transition border
+      {% if not att or att.status.value == 'pending' %}bg-gray-400 text-white border-gray-400{% else %}bg-white text-gray-500 border-gray-300 hover:bg-gray-50{% endif %}">
+    未回答
+  </button>
+</div>

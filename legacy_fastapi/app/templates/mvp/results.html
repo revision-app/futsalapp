@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}MVP結果 | {{ event.title }}{% endblock %}
+{% block content %}
+
+<div class="mb-4">
+  <a href="/events/{{ event.id }}" class="text-green-600 text-sm hover:underline">← イベントに戻る</a>
+</div>
+
+<div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-4">
+  <div class="text-center">
+    <div class="text-4xl mb-2">🏆</div>
+    <h1 class="text-lg font-bold text-gray-800">MVP 投票結果</h1>
+    <p class="text-sm text-gray-500 mt-1">{{ event.title }}</p>
+    <p class="text-xs text-gray-400 mt-1">投票者数: {{ total_voters }}人</p>
+  </div>
+</div>
+
+{% if not ranked %}
+<div class="text-center py-10 text-gray-400">
+  <p>まだ投票がありません。</p>
+</div>
+{% else %}
+<div class="space-y-3">
+  {% for item in ranked %}
+  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
+    <div class="text-2xl flex-shrink-0 w-10 text-center">
+      {% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}{% endif %}
+    </div>
+    <div class="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-700 font-bold text-lg flex-shrink-0">
+      {{ (item.user.display_name or item.user.email)[0].upper() }}
+    </div>
+    <div class="flex-1 min-w-0">
+      <p class="font-semibold text-gray-800">{{ item.user.display_name or item.user.email }}</p>
+      <div class="flex gap-2 mt-1">
+        {% if item.pt3 %}<span class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">3pt × {{ item.pt3 }}</span>{% endif %}
+        {% if item.pt2 %}<span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">2pt × {{ item.pt2 }}</span>{% endif %}
+        {% if item.pt1 %}<span class="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full">1pt × {{ item.pt1 }}</span>{% endif %}
+      </div>
+    </div>
+    <div class="flex-shrink-0 text-right">
+      <span class="text-2xl font-bold text-gray-800">{{ item.total }}</span>
+      <span class="text-xs text-gray-400 ml-0.5">pt</span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

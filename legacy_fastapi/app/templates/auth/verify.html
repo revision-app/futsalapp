@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}メール確認 | REVISION{% endblock %}
+{% block content %}
+<div class="flex flex-col items-center justify-center min-h-[60vh]">
+  <div class="w-full max-w-sm text-center">
+    <div id="verify-status">
+      <div class="text-5xl mb-4">📧</div>
+      <p class="text-gray-600">メールアドレスを確認中...</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(async () => {
+  const token = '{{ token }}';
+  const el = document.getElementById('verify-status');
+
+  if (!token) {
+    el.innerHTML = '<div class="text-5xl mb-4">✉️</div><p class="text-gray-700 font-semibold">確認メールを送信しました</p><p class="text-gray-500 text-sm mt-2">受信トレイのリンクをクリックしてメールアドレスを確認してください。</p><a href="/auth/login" class="mt-4 inline-block text-green-600 hover:underline text-sm">ログインに戻る</a>';
+    return;
+  }
+
+  const res = await fetch('/api/auth/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+
+  if (res.ok) {
+    el.innerHTML = '<div class="text-5xl mb-4">✅</div><p class="text-gray-700 font-semibold">メールアドレスを確認しました</p><a href="/auth/login" class="mt-4 inline-block bg-green-600 text-white px-6 py-2.5 rounded-lg font-semibold">ログインする</a>';
+  } else {
+    el.innerHTML = '<div class="text-5xl mb-4">❌</div><p class="text-red-600 font-semibold">確認リンクが無効または期限切れです</p><a href="/auth/login" class="mt-4 inline-block text-green-600 hover:underline text-sm">ログインに戻る</a>';
+  }
+})();
+</script>
+{% endblock %}

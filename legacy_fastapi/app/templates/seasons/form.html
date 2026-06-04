@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}{% if season %}シーズン編集{% else %}シーズン作成{% endif %} | REVISION{% endblock %}
+{% block content %}
+
+<div class="mb-4">
+  <a href="/seasons" class="text-green-600 text-sm hover:underline">← シーズン一覧に戻る</a>
+</div>
+
+<div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+  <h1 class="text-lg font-bold text-gray-800 mb-4">
+    {% if season %}シーズンを編集{% else %}新しいシーズンを作成{% endif %}
+  </h1>
+
+  <form method="post" action="{% if season %}/seasons/{{ season.id }}/edit{% else %}/seasons/new{% endif %}" class="space-y-4">
+    <div>
+      <label class="block text-sm font-medium text-gray-600 mb-1">シーズン名 <span class="text-red-500">*</span></label>
+      <input type="text" name="name" value="{{ season.name if season else '' }}"
+        class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+        placeholder="例: 2024年前期" required />
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-600 mb-1">開始日 <span class="text-red-500">*</span></label>
+      <input type="date" name="start_date" value="{{ season.start_date.isoformat() if season else '' }}"
+        class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" required />
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-600 mb-1">終了日 <span class="text-red-500">*</span></label>
+      <input type="date" name="end_date" value="{{ season.end_date.isoformat() if season else '' }}"
+        class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" required />
+    </div>
+    <button type="submit"
+      class="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2.5 rounded-lg transition">
+      {% if season %}更新する{% else %}作成する{% endif %}
+    </button>
+  </form>
+</div>
+{% endblock %}

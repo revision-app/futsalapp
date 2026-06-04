@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# 環境変数（機密情報）
+.env
+
+# Alembic（自動生成ファイルは除外しない）
+# alembic/versions/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# テスト
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tsbuildinfo
+
+# Vercel
+.vercel/
+
+# Environment variables / secrets
+.env.local
+.env*.local
+
+# Local handoff notes may contain environment details or temporary credentials
+HANDOFF_NEXT_AI.md

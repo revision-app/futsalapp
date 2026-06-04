@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}MVP投票 | {{ event.title }}{% endblock %}
+{% block content %}
+
+<div class="mb-4">
+  <a href="/events/{{ event.id }}" class="text-green-600 text-sm hover:underline">← イベントに戻る</a>
+</div>
+
+<div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-4">
+  <div class="text-center">
+    <div class="text-4xl mb-2">🏆</div>
+    <h1 class="text-lg font-bold text-gray-800">MVP投票</h1>
+    <p class="text-sm text-gray-500 mt-1">{{ event.title }}</p>
+    <p class="text-xs text-gray-400 mt-1">3pt・2pt・1pt をそれぞれ最大1人に投票できます（1件以上必須）</p>
+  </div>
+</div>
+
+{% if my_votes %}
+<div class="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-xl px-4 py-3 text-sm mb-4">
+  投票済みです。変更することができます。
+</div>
+{% endif %}
+
+{% if not attendees %}
+<div class="text-center py-10 text-gray-400">
+  <p>参加者がいないため投票できません。</p>
+  <a href="/events/{{ event.id }}" class="mt-2 inline-block text-green-600 hover:underline text-sm">イベントに戻る</a>
+</div>
+{% else %}
+<form method="post" action="/mvp/{{ event.id }}/vote" id="vote-form">
+  {% for pt, label, color in [(3, '3pt 🥇', 'yellow'), (2, '2pt 🥈', 'gray'), (1, '1pt 🥉', 'orange')] %}
+  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-3">
+    <p class="font-bold text-lg mb-3
+      {% if pt == 3 %}text-yellow-500{% elif pt == 2 %}text-gray-400{% else %}text-orange-400{% endif %}">
+      {{ label }}
+    </p>
+    <div class="space-y-2">
+      {# 「なし」オプション #}
+      <label class="block cursor-pointer">
+        <input type="radio" name="votee_{{ pt }}pt" value="" class="sr-only peer"
+          {% if pt not in my_votes %}checked{% endif %} />
+        <div class="border-2 border-gray-200 peer-checked:border-gray-400 peer-checked:bg-gray-50 rounded-xl px-4 py-2.5 text-sm text-gray-400 transition">
+          なし
+        </div>
+      </label>
+      {% for user in attendees %}
+      <label class="block cursor-pointer">
+        <input type="radio" name="votee_{{ pt }}pt" value="{{ user.id }}" class="sr-only peer"
+          data-user-id="{{ user.id }}"
+          {% if pt in my_votes and my_votes[pt].votee_id == user.id %}checked{% endif %} />
+        <div class="bg-white border-2 border-gray-200
+          {% if pt == 3 %}peer-checked:border-yellow-400 peer-checked:bg-yellow-50
+          {% elif pt == 2 %}peer-checked:border-gray-400 peer-checked:bg-gray-50
+          {% else %}peer-checked:border-orange-300 peer-checked:bg-orange-50{% endif %}
+          rounded-xl p-3 flex items-center gap-3 transition">
+          <div class="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-700 font-bold flex-shrink-0">
+            {{ (user.display_name or user.email)[0].upper() }}
+          </div>
+          <p class="font-semibold text-gray-800 text-sm">
+            {{ user.display_name or user.email }}
+            {% if user.id == current_user.id %}<span class="text-xs text-gray-400">（自分）</span>{% endif %}
+          </p>
+        </div>
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+
+  <div id="vote-error" class="hidden bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-3"></div>
+
+  <button type="submit"
+    class="w-full bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-bold py-3 rounded-xl transition text-sm">
+    🏆 投票する
+  </button>
+</form>
+{% endif %}
+
+<script>
+document.getElementById('vote-form')?.addEventListener('submit', function(e) {
+  const errEl = document.getElementById('vote-error');
+  errEl.classList.add('hidden');
+
+  // 1件以上チェック
+  const selected = [3, 2, 1].map(pt => {
+    const el = document.querySelector(`input[name="votee_${pt}pt"]:checked`);
+    return el ? el.value : '';
+  });
+  if (selected.every(v => v === '')) {
+    e.preventDefault();
+    errEl.textContent = '1件以上投票してください。';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  // 重複チェック
+  const filled = selected.filter(v => v !== '');
+  if (new Set(filled).size !== filled.length) {
+    e.preventDefault();
+    errEl.textContent = '同じ人に複数のポイントを投票することはできません。';
+    errEl.classList.remove('hidden');
+  }
+});
+</script>
+{% endblock %}

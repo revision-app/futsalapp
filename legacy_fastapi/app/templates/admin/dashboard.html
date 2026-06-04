@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}管理ダッシュボード | REVISION{% endblock %}
+{% block content %}
+
+<h1 class="text-xl font-bold text-gray-800 mb-4">管理ダッシュボード</h1>
+
+<div class="grid grid-cols-3 gap-3 mb-6">
+  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">
+    <p class="text-3xl font-bold text-green-600">{{ user_count }}</p>
+    <p class="text-xs text-gray-500 mt-1">アクティブユーザー</p>
+  </div>
+  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">
+    <p class="text-3xl font-bold text-blue-600">{{ event_count }}</p>
+    <p class="text-xs text-gray-500 mt-1">総イベント数</p>
+  </div>
+  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">
+    <p class="text-3xl font-bold text-purple-600">{{ season_count }}</p>
+    <p class="text-xs text-gray-500 mt-1">シーズン数</p>
+  </div>
+</div>
+
+<div class="space-y-3">
+  <a href="/events/new" class="block bg-white rounded-2xl border border-gray-100 shadow-sm p-4 hover:bg-gray-50 transition">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-xl">📅</div>
+      <div>
+        <p class="font-semibold text-gray-800">イベント作成</p>
+        <p class="text-xs text-gray-500">新しい練習・試合を登録</p>
+      </div>
+      <svg class="w-5 h-5 text-gray-400 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+    </div>
+  </a>
+
+  <a href="/seasons/new" class="block bg-white rounded-2xl border border-gray-100 shadow-sm p-4 hover:bg-gray-50 transition">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center text-xl">🗂️</div>
+      <div>
+        <p class="font-semibold text-gray-800">シーズン作成</p>
+        <p class="text-xs text-gray-500">新シーズンの開始</p>
+      </div>
+      <svg class="w-5 h-5 text-gray-400 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+    </div>
+  </a>
+
+  <a href="/admin/users" class="block bg-white rounded-2xl border border-gray-100 shadow-sm p-4 hover:bg-gray-50 transition">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center text-xl">👥</div>
+      <div>
+        <p class="font-semibold text-gray-800">ユーザー管理</p>
+        <p class="text-xs text-gray-500">メンバーの管理・権限設定</p>
+      </div>
+      <svg class="w-5 h-5 text-gray-400 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+    </div>
+  </a>
+
+  <a href="/admin/invite" class="block bg-white rounded-2xl border border-gray-100 shadow-sm p-4 hover:bg-gray-50 transition">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 bg-yellow-100 rounded-xl flex items-center justify-center text-xl">✉️</div>
+      <div>
+        <p class="font-semibold text-gray-800">管理者招待</p>
+        <p class="text-xs text-gray-500">管理者用招待メールの送信</p>
+      </div>
+      <svg class="w-5 h-5 text-gray-400 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+    </div>
+  </a>
+</div>
+{% endblock %}

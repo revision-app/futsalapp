@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}アカウント登録 | REVISION{% endblock %}
+{% block content %}
+<div class="flex flex-col items-center justify-center min-h-[70vh]">
+  <div class="w-full max-w-sm">
+    <div class="text-center mb-6">
+      <div class="text-5xl mb-2">⚽</div>
+      <h1 class="text-xl font-bold text-gray-800">
+        {% if is_admin_invite %}管理者アカウント登録{% else %}アカウント登録{% endif %}
+      </h1>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+      {% if is_admin_invite %}
+      <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm rounded-lg px-3 py-2 mb-4">
+        管理者として招待されています
+      </div>
+      {% endif %}
+
+      <form id="register-form" class="space-y-4">
+        <input type="hidden" name="invite_token" value="{{ invite_token }}" />
+        <div>
+          <label class="block text-sm font-medium text-gray-600 mb-1">表示名</label>
+          <input type="text" name="display_name"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            placeholder="山田 太郎" required />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-600 mb-1">メールアドレス</label>
+          <input type="email" name="email" value="{{ invite_email }}"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 {% if is_admin_invite %}bg-gray-50{% endif %}"
+            placeholder="email@example.com" {% if is_admin_invite %}readonly{% endif %} required />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-600 mb-1">パスワード</label>
+          <input type="password" name="password" id="password"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            placeholder="8文字以上" minlength="8" required />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-600 mb-1">パスワード（確認）</label>
+          <input type="password" id="password-confirm"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            placeholder="••••••••" required />
+        </div>
+        <div id="register-error" class="hidden text-red-600 text-sm"></div>
+        <button type="submit"
+          class="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2.5 rounded-lg transition">
+          登録する
+        </button>
+      </form>
+
+      <div class="mt-4 text-sm text-center">
+        <a href="/auth/login" class="text-gray-500 hover:underline">すでにアカウントをお持ちの方</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById('register-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('register-error');
+  errEl.classList.add('hidden');
+
+  const form = e.target;
+  const pw = form.password.value;
+  const pwc = document.getElementById('password-confirm').value;
+  if (pw !== pwc) {
+    errEl.textContent = 'パスワードが一致しません';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  const payload = {
+    email: form.email.value,
+    password: pw,
+    display_name: form.display_name.value,
+  };
+
+  const res = await fetch('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (res.ok) {
+    // 登録後にログイン
+    const loginData = new FormData();
+    loginData.set('username', payload.email);
+    loginData.set('password', payload.password);
+    const loginRes = await fetch('/api/auth/jwt/login', { method: 'POST', body: loginData });
+    if (loginRes.ok) {
+      window.location.href = '/events';
+    } else {
+      window.location.href = '/auth/login';
+    }
+  } else {
+    const data = await res.json().catch(() => ({}));
+    errEl.textContent = data.detail || '登録に失敗しました。このメールアドレスは既に使用されている可能性があります。';
+    errEl.classList.remove('hidden');
+  }
+});
+</script>
+{% endblock %}

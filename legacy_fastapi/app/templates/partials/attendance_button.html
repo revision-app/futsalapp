@@ -1,0 +1,13 @@
+{# 一覧ページ用: クリックでサイクル（HTMX） #}
+<button
+  hx-post="/attendance/{{ event_id }}/toggle"
+  hx-target="this"
+  hx-swap="outerHTML"
+  class="text-xs border px-3 py-1.5 rounded-full font-semibold transition
+    {% if att.status.value == 'attending' %}bg-green-100 text-green-700 border-green-200
+    {% elif att.status.value == 'absent' %}bg-red-100 text-red-700 border-red-200
+    {% else %}bg-gray-100 text-gray-500 border-gray-200{% endif %}">
+  {% if att.status.value == 'attending' %}参加 ✓
+  {% elif att.status.value == 'absent' %}欠席
+  {% else %}未回答{% endif %}
+</button>
