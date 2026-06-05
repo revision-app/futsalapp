@@ -14,8 +14,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       <Notice error={params?.error} message={params?.message} />
       <form action={loginAction} className="space-y-4">
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-600">メールアドレス</label>
-          <input className="form-input" type="email" name="email" autoComplete="email" required />
+          <label className="mb-1 block text-sm font-medium text-slate-600">ログインID</label>
+          <input className="form-input" type="text" name="login_id" autoComplete="username" required />
         </div>
         <div>
           <label className="mb-1 block text-sm font-medium text-slate-600">パスワード</label>

@@ -1,314 +1,301 @@
-# REVISION システム要件定義書
-
-> 2026-05-28 更新: 現在の実装は Vercel + Supabase Auth/Postgres 前提の Next.js アプリへ移行済みです。新しい運用手順は `VERCEL_SUPABASE.md` を参照してください。以下は旧FastAPI/Railway構成の要件メモとして残しています。
-
----
-
-## 1. システム概要
-
-本システムは、フットサルチーム（アクティブ30人規模）の運営を効率化するWebアプリケーション **REVISION** です。出欠管理・MVP投票・シーズン集計を主要機能として提供します。スマートフォンでの閲覧に最適化し、Railway上にデプロイするPaaS構成を採用します。
-
----
-
-## 2. 技術スタック
-
-| カテゴリ | ライブラリ / サービス | 役割・選定理由 |
-|----------|----------------------|----------------|
-| バックエンド | Python 3.12 + FastAPI | Python製の軽量Webフレームワーク。非同期対応・自動ドキュメント生成あり |
-| テンプレート | Jinja2 + HTMX | サーバーサイドレンダリング。JS最小限でSPA的UXを実現 |
-| スタイリング | Tailwind CSS（Play CDN） | ユーティリティCSS。スマホ最適化レスポンシブ対応 |
-| ORM / DB | SQLAlchemy（async） + PostgreSQL | 非同期対応ORM。asyncpgドライバ使用 |
-| マイグレーション | Alembic | DBスキーマ変更の追跡・管理 |
-| 認証 | FastAPI-Users 13.x | JWT Cookie認証・パスワードリセット・権限管理を提供 |
-| メール送信 | SendGrid（無料枠） | 月最大100通。招待・リマインドメールをカバー |
-| タスクスケジューラ | Railway Cron Job | 前日AM9:00のリマインドメール定期実行 |
-| ホスティング | Railway | Git pushでデプロイ。PostgreSQL・Cron Jobも同一プラットフォームで管理 |
-| バージョン管理 | GitHub | ソースコード管理・Railwayとの自動デプロイ連携 |
-
----
-
-## 3. システムアーキテクチャ
-
-### 3.1 全体構成
-
-本システムはモノリシックなサーバーサイドレンダリング構成を採用します。フロントエンドとバックエンドを分離せず、FastAPIからJinja2テンプレートを直接レンダリングすることで、開発・運用コストを最小化します。
-
-```
-ブラウザ（スマホ最適化）
-    ↓ HTTPS
-FastAPI + Jinja2 + HTMX（Railway Web Service）
-    ↓
-PostgreSQL（Railway Managed DB）
-    ↓
-SendGrid（外部メールサービス）
-
-Railway Cron Job → リマインドメール処理（毎日AM9:00 JST）
-```
-
-### 3.2 認証フロー
-
-- **一般ユーザー**：登録ページでメールアドレス・表示名・パスワードを入力 → 登録後即ログイン → イベント一覧へ
-- **管理ユーザー**：管理者がユーザー管理画面から一般ユーザー登録リンクをコピーして共有 → 登録後、管理者がユーザー管理画面で管理者権限を付与
-- **パスワードリセット**：メールアドレス入力 → リセットリンク送信 → リンクから新パスワード設定
-- **認証方式**：JWTトークン（HTTP-only Cookie保存）。`is_superuser` フラグに応じてアクセス制御
-- **未ログインアクセス**：画面系URLは `/auth/login` へ自動リダイレクト（APIエンドポイントは 401 JSON）
-
-### 3.3 タイムゾーン
-
-- DBはUTCで保存
-- フォーム入力値（datetime-local）はJST（+9:00）として受け取りUTCに変換して保存
-- テンプレート表示時は `to_jst` フィルターでJSTに変換して表示
-- イベント登録時刻は15分単位
-
----
-
-## 4. ディレクトリ構成
-
-```
-project/
-├── app/
-│   ├── main.py               # FastAPIエントリーポイント・例外ハンドラー
-│   ├── auth.py               # FastAPI-Users設定（JWT Cookie認証）
-│   ├── config.py             # 環境変数管理（pydantic-settings）
-│   ├── database.py           # 非同期SQLAlchemyエンジン
-│   ├── templates_config.py   # Jinja2テンプレート共有インスタンス・フィルター定義
-│   ├── routers/              # 機能別ルーター
-│   │   ├── auth_pages.py     # 認証HTMLページ（登録・ログイン・リセット）
-│   │   ├── events.py         # イベント・シーズン登録・管理・CSVエクスポート
-│   │   ├── attendance.py     # 出欠登録・管理（HTMX対応）
-│   │   ├── mvp.py            # MVP投票・集計
-│   │   └── admin.py          # 管理者機能（ユーザー管理・招待）
-│   ├── models/               # SQLAlchemyモデル定義
-│   │   ├── user.py
-│   │   ├── season.py
-│   │   ├── event.py
-│   │   ├── attendance.py
-│   │   └── mvp_vote.py
-│   ├── schemas/              # Pydanticスキーマ（バリデーション）
-│   ├── services/             # ビジネスロジック
-│   │   ├── email.py          # メール送信（SendGrid）
-│   │   ├── reminder.py       # リマインド処理（Cron Job用）
-│   │   └── csv_export.py     # CSV生成（出欠・MVP）
-│   ├── templates/            # Jinja2 HTMLテンプレート
-│   │   ├── base.html         # 共通レイアウト（ナビ・ヘッダー）
-│   │   ├── auth/             # ログイン・登録・パスワードリセット
-│   │   ├── events/           # イベント一覧・詳細・作成編集
-│   │   ├── seasons/          # シーズン一覧・作成編集
-│   │   ├── mvp/              # MVP投票・結果
-│   │   ├── admin/            # 管理ダッシュボード・ユーザー管理・招待
-│   │   └── partials/         # HTMXレスポンス用HTMLフラグメント
-│   └── static/               # 静的ファイル
-├── seed.py                   # デバッグ用サンプルデータ投入スクリプト
-├── tests/                    # ユニット・統合テスト
-├── alembic/                  # DBマイグレーション
-├── railway.toml              # Railway設定ファイル
-├── Procfile                  # プロセス定義
-├── requirements.txt          # Pythonパッケージ一覧
-└── .env                      # 環境変数（ローカル開発用、.gitignore対象）
-```
-
----
-
-## 5. データベース設計
-
-### users（ユーザー情報）
-
-| カラム名 | 型 | 説明 |
-|----------|----|------|
-| id | UUID | 主キー |
-| email | VARCHAR | メールアドレス（一意） |
-| hashed_password | VARCHAR | ハッシュ化パスワード（bcrypt） |
-| display_name | VARCHAR(100) | 表示名 |
-| is_superuser | BOOLEAN | 管理ユーザーフラグ（= is_admin） |
-| is_active | BOOLEAN | 有効フラグ（利用停止で False） |
-| is_verified | BOOLEAN | メール確認済みフラグ（現在は未強制） |
-| created_at | TIMESTAMP | 登録日時 |
-
-### seasons（シーズン情報）
-
-| カラム名 | 型 | 説明 |
-|----------|----|------|
-| id | UUID | 主キー |
-| name | VARCHAR | シーズン名 |
-| start_date | DATE | 開始日 |
-| end_date | DATE | 終了日 |
-| created_by | UUID (FK) | 作成した管理ユーザー |
-| created_at | TIMESTAMP | 作成日時 |
-
-### events（活動予定）
-
-| カラム名 | 型 | 説明 |
-|----------|----|------|
-| id | UUID | 主キー |
-| season_id | UUID (FK) | 所属シーズン |
-| title | VARCHAR(200) | タイトル |
-| event_type | ENUM | 種別（practice / match / party） |
-| location | VARCHAR(200) | 場所 |
-| event_date | TIMESTAMP(UTC) | 活動日時（UTC保存・JST表示） |
-| created_by | UUID (FK) | 作成した管理ユーザー |
-| created_at | TIMESTAMP | 作成日時 |
-
-### attendances（出欠情報）
-
-| カラム名 | 型 | 説明 |
-|----------|----|------|
-| id | UUID | 主キー |
-| event_id | UUID (FK) | 活動予定 |
-| user_id | UUID (FK) | ユーザー |
-| status | ENUM | 出欠ステータス（attending / absent / pending） |
-| updated_at | TIMESTAMP | 最終更新日時 |
-
-> ※ イベント作成時に全アクティブユーザー分の出欠レコードを `pending` で自動生成する。
-
-### mvp_votes（MVP投票）
-
-| カラム名 | 型 | 説明 |
-|----------|----|------|
-| id | UUID | 主キー |
-| event_id | UUID (FK) | 活動予定 |
-| voter_id | UUID (FK) | 投票者 |
-| votee_id | UUID (FK) | 投票先ユーザー（自分自身への投票も可） |
-| created_at | TIMESTAMP | 投票日時 |
-
-> ※ 1ユーザー1イベント1票（再投票で上書き可能）。
-
----
-
-## 6. 機能仕様
-
-### 6.1 画面・機能一覧
-
-| 画面 | URL | 権限 | 主な機能 |
-|------|-----|------|---------|
-| ログイン | `/auth/login` | 全員 | メール・パスワードでログイン |
-| ユーザー登録 | `/auth/register` | 全員 | 表示名・メール・パスワードで登録 |
-| パスワードリセット | `/auth/forgot-password` | 全員 | リセットメール送信 |
-| イベント一覧 | `/events` | ログイン済 | シーズン絞り込み・自分の出欠状況表示 |
-| イベント詳細 | `/events/{id}` | ログイン済 | 出欠登録（HTMX）・MVP投票リンク・参加者一覧 |
-| イベント作成・編集 | `/events/new` `/events/{id}/edit` | 管理者 | 15分単位の時刻入力 |
-| シーズン一覧 | `/seasons` | ログイン済 | CSVエクスポート（管理者のみ） |
-| MVP投票 | `/mvp/{id}` | ログイン済 | 参加者への投票（自分自身への投票も可） |
-| MVP結果 | `/mvp/{id}/results` | 管理者 | 得票数ランキング表示 |
-| 管理ダッシュボード | `/admin/dashboard` | 管理者 | 統計・各機能へのショートカット |
-| ユーザー管理 | `/admin/users` | 管理者 | 管理者権限付与・利用停止/再開・招待リンクコピー |
-| 管理者招待 | `/admin/invite` | 管理者 | 管理者用招待メール送信 |
-
-### 6.2 出欠管理
+# REVISION システム仕様書
 
-- イベント詳細ページで「参加」「欠席」「未回答」の3択ボタンをHTMXで即時更新
-- イベント作成時に全アクティブユーザーの出欠レコードを `pending` で自動生成
+> 最終更新: 2026-06-06
+> 対象: Vercel + Supabase Auth/Postgres で運用する Next.js アプリ
 
-### 6.3 MVP投票
-
-- 対象イベント種別：practice（練習）・match（試合）
-- 参加ステータスが `attending` のユーザーのみ投票候補に表示
-- 自分自身への投票も可能
-- 1ユーザー1票（再投票で変更可能）
-- 結果表示は管理者のみ（一般ユーザーには「結果を見る」ボタン非表示）
+## 1. 概要
 
-### 6.4 CSVエクスポート
+REVISION は、フットサルチームのイベント管理、出欠管理、MVP投票、シーズン集計を行うWebアプリケーションです。スマートフォンでの利用を主対象とし、管理者がイベントとユーザーを管理し、一般ユーザーが出欠登録とMVP投票を行います。
 
-- 出欠CSV：シーズン内の全イベント × 全ユーザーのクロス集計
-- MVP CSV：シーズン内の各イベントの得票1位まとめ
-- 文字コード：UTF-8 BOM付き（Excelで直接開ける）
+旧Railway/FastAPI構成は参照用であり、正の仕様は本書の Vercel + Supabase 構成です。
 
----
+## 2. 技術構成
 
-## 7. 環境変数
+| 項目 | 仕様 |
+| --- | --- |
+| フロントエンド/アプリ | Next.js App Router |
+| ホスティング | Vercel |
+| 認証 | Supabase Auth |
+| データベース | Supabase Postgres |
+| メール送信 | 標準仕様ではユーザーのメールアドレスを管理しない。実メールを持つ既存データへのイベントリマインドのみ任意 |
+| 定期実行 | Vercel Cron |
+| UI | Tailwind CSS, lucide-react |
 
-| 変数名 | 説明 |
-|--------|------|
-| DATABASE_URL | PostgreSQL接続URL（RailwayがDATABASE_URLとして自動注入） |
-| SECRET_KEY | JWTトークン署名用シークレットキー |
-| SENDGRID_API_KEY | SendGrid APIキー（未設定時はコンソールにログ出力） |
-| SENDGRID_FROM_EMAIL | 送信元メールアドレス |
-| ADMIN_INVITE_SECRET | 管理ユーザー招待トークン生成用シークレット兼Cron Job認証キー |
-| BASE_URL | アプリのベースURL（メール内リンク生成用） |
+## 3. ユーザー種別
 
----
+| 種別 | 権限 |
+| --- | --- |
+| 一般ユーザー | イベント閲覧、出欠登録、MVP投票、シーズン閲覧 |
+| 管理者 | 一般ユーザー機能に加え、イベント/シーズン/ユーザー管理、CSV出力、MVP結果閲覧 |
 
-## 8. デプロイ手順（Railway）
+無効化されたユーザーはログイン後に利用できず、アプリ画面へ進めません。
 
-| 手順 | 内容 |
-|------|------|
-| 1. GitHubリポジトリ作成 | アプリコードをpush |
-| 2. Railwayプロジェクト作成 | railway.app にてNew Project → Deploy from GitHub |
-| 3. PostgreSQL追加 | Railway管理画面 → Add Service → PostgreSQL（DATABASE_URLが自動設定） |
-| 4. 環境変数設定 | Railway管理画面 → Variables にて上記環境変数を登録 |
-| 5. Cron Job設定 | Railway管理画面 → Add Service → Cron（`0 0 * * *` = 毎日AM9:00 JST） |
-| 6. デプロイ確認 | Deployments タブでビルドログ・稼働状況を確認 |
+## 4. 認証・ユーザー管理
 
-> ※ デプロイ時に `alembic upgrade head` が自動実行されます（`railway.toml` に設定済み）。
-> ※ Cron JobはPOST `/cron/reminders` を `X-Cron-Secret` ヘッダー付きでリクエストします。
+### 4.1 ログイン
 
----
+- ログインURLは `/login` とします。
+- ログインIDとパスワードでログインします。
+- ログインIDは `saitoy` のようなIDのみを入力し、`@` 以降は入力しません。
+- Supabase Auth の内部識別子として `${login_id}@revision.local` 形式のメール文字列を使いますが、これはユーザー管理対象ではなく、画面やCSVには表示しません。
+- 初回ログイン対象ユーザーは、ログイン後 `/initial-setup` に遷移します。
+- 初回設定では、初期パスワードの変更と復旧用情報の設定を行います。
 
-## 9. 開発環境セットアップ（Windows）
+### 4.2 ユーザー作成
 
-### 9.1 必要ツール
+ユーザー自身による公開登録は行いません。
 
-- Python 3.12（[python.org](https://python.org) からインストール）
-- Git（[git-scm.com](https://git-scm.com) からインストール）
-- VS Code（推奨エディタ）
-- PostgreSQL（ローカルDB用）
+管理者または運用担当者が、事前にユーザーを作成します。初期パスワードは共通で `password123` とし、初回ログイン時に必ず変更させます。
 
-### 9.2 初期セットアップ手順
+ユーザー作成時の標準設定:
 
-```bash
-# リポジトリをクローン
-git clone <repository_url>
-cd <project_directory>
+| 項目 | 値 |
+| --- | --- |
+| login_id | `saitoy` などのログインID |
+| display_name | 表示名 |
+| role | `member` または `admin` |
+| is_active | `true` |
+| must_change_password | `true` |
+| 初期パスワード | `password123` |
 
-# 仮想環境作成・有効化
-python -m venv venv
-.\venv\Scripts\activate
+管理者画面から作成する場合も、Supabase側で事前作成する場合も、上記の状態を正とします。
 
-# パッケージインストール
-pip install -r requirements.txt
+### 4.3 初期管理者
 
-# .envファイルをプロジェクトルートに作成し環境変数を設定
-copy .env.example .env
-# .env を編集して DATABASE_URL 等を設定
+初回登録ユーザーを自動的に管理者にする仕様は採用しません。初期管理者は、Supabaseまたは管理用SQLで明示的に `role = 'admin'` として作成します。
 
-# DBマイグレーション実行
-alembic upgrade head
+### 4.4 パスワード再設定
 
-# サンプルデータ投入（任意）
-python seed.py
+パスワード再設定URLは `/forgot-password` とします。
 
-# ローカル起動
-uvicorn app.main:app --reload
-```
+標準仕様は、初回設定で登録した復旧用情報を使ってパスワードを再設定する方式です。メールリンクによる再設定は必須仕様ではありません。
 
-ブラウザで `http://localhost:8000` にアクセスして動作確認します。
+管理者が本人確認済みと判断した場合は、ユーザーのパスワードを `password123` に初期化し、`must_change_password = true` に戻す運用も許容します。
 
-seed.py 実行後のログインアカウント（パスワード共通: `password123`）：
+## 5. 画面・ルート
 
-| メールアドレス | 権限 |
-|---------------|------|
-| admin@revision.local | 管理者 |
-| tanaka@revision.local〜kobayashi@revision.local | 一般 |
+| 画面 | URL | 権限 | 内容 |
+| --- | --- | --- | --- |
+| ログイン | `/login` | 全員 | ログインID/パスワードでログイン |
+| 登録案内 | `/register` | 全員 | 自己登録停止の案内 |
+| パスワード再設定 | `/forgot-password` | 全員 | 復旧用情報による再設定 |
+| 初回設定 | `/initial-setup` | ログイン済 | 初期パスワード変更、復旧用情報設定 |
+| イベント一覧 | `/events` | ログイン済 | 全イベント表示、シーズン絞り込み、自分の出欠表示 |
+| イベント詳細 | `/events/{eventId}` | ログイン済 | 出欠登録、参加者一覧、MVP投票リンク |
+| イベント作成 | `/events/new` | 管理者 | イベント作成 |
+| イベント編集 | `/events/{eventId}/edit` | 管理者 | イベント編集 |
+| シーズン一覧 | `/seasons` | ログイン済 | シーズン一覧、管理者向けCSV出力 |
+| シーズン作成 | `/seasons/new` | 管理者 | シーズン作成 |
+| シーズン編集 | `/seasons/{seasonId}/edit` | 管理者 | シーズン編集 |
+| MVP投票 | `/mvp/{eventId}` | ログイン済 | 参加者へのMVP投票 |
+| MVP結果 | `/mvp/{eventId}/results` | 管理者 | MVP集計結果 |
+| 管理ダッシュボード | `/admin` | 管理者 | 統計、管理機能リンク |
+| ユーザー管理 | `/admin/users` | 管理者 | 権限変更、有効/無効切替 |
+| ユーザー作成 | `/admin/invite` | 管理者 | ログインIDと初期パスワードによるユーザー作成 |
 
----
+`/auth/callback` は Supabase Auth のコールバック専用ルートです。
 
-## 10. 非機能要件への対応方針
+## 6. イベント管理
 
-### 10.1 セキュリティ
+### 6.1 イベント一覧
 
-- パスワードはbcryptでハッシュ化して保存
-- JWTトークンはHTTP-only Cookieで管理（XSS対策）
-- 未ログインアクセスは `/auth/login` へ自動リダイレクト
-- 全環境変数はRailway Variablesで管理し、コードへのハードコード禁止
-- Cron JobエンドポイントはX-Cron-Secretヘッダーで保護
+- イベント一覧は過去/未来を問わず全件を表示します。
+- 表示順はイベント日時の昇順です。
+- シーズン指定がある場合は、該当シーズンのイベントのみ表示します。
+- 各イベントカードに自分の出欠状態を表示します。
 
-### 10.2 可用性
+### 6.2 イベント種別
 
-- Railway Webサービスは自動再起動・ヘルスチェック機能あり（`/health` エンドポイント）
-- 30人規模の同時アクセスはRailway Hobbyプランで十分対応可能
-- PostgreSQLは自動バックアップ（Railway標準機能）
+| 値 | 表示 | MVP対象 |
+| --- | --- | --- |
+| `practice` | 練習 | 対象 |
+| `party` | 飲み会 | 対象外 |
+| `camp` | 合宿 | 対象外 |
 
-### 10.3 保守性
+### 6.3 イベント作成・編集
 
-- GitHub連携による自動デプロイ（mainブランチへのpushで即時反映）
-- Railway管理画面でログ・リソース使用状況を確認可能
-- Alembicによるマイグレーション管理でDBスキーマ変更を追跡
+- 管理者のみ作成/編集/削除できます。
+- 開始日時と終了日時を入力します。
+- 日時入力は15分単位とします。
+- 入力はJSTとして扱い、DBにはUTCで保存します。
+- 終了日時は開始日時より後である必要があります。
+- イベント作成時、全アクティブユーザーの出欠レコードを `pending` で作成します。
+
+## 7. 出欠管理
+
+出欠ステータスは次の4種類です。
+
+| 値 | 表示 |
+| --- | --- |
+| `attending` | 出席 |
+| `absent` | 欠席 |
+| `tentative` | 保留 |
+| `pending` | 未回答 |
+
+一般ユーザーは自分の出欠をイベント一覧またはイベント詳細から変更できます。過去イベントの出欠変更も許可します。
+
+イベント詳細では、出席/欠席/保留/未回答のユーザー一覧を表示します。
+
+## 8. MVP投票
+
+### 8.1 対象イベント
+
+MVP投票は `practice` のみ対象です。`party` と `camp` は対象外です。
+
+### 8.2 投票候補
+
+- 投票候補は対象イベントの出欠が `attending`（出席）のユーザーのみです。
+- 自分自身への投票は許可します。
+
+### 8.3 投票方式
+
+MVP投票はポイント制とします。
+
+| ポイント | 内容 |
+| --- | --- |
+| 3pt | 最も評価した参加者 |
+| 2pt | 次に評価した参加者 |
+| 1pt | 次に評価した参加者 |
+
+将来的な複数選択に対応するため、各ポイント枠は0人以上の複数ユーザーを選択できる仕様を正とします。現在UIが単一選択であっても、仕様上は複数選択対応を前提にします。
+
+ルール:
+
+- 1回の投票で、3pt/2pt/1ptの各枠に任意人数を選択できます。
+- 同じユーザーを複数のポイント枠に重複して選択することはできません。
+- 最低1人以上を選択する必要があります。
+- 再投票した場合、そのユーザーの当該イベントへの既存投票を全削除し、新しい投票内容で置き換えます。
+- 各選択ユーザーには、選ばれた枠のポイントがそのまま加算されます。
+
+### 8.4 MVP結果
+
+- MVP結果は管理者のみ閲覧できます。
+- 一般ユーザーには「結果を見る」リンクを表示しません。
+- 結果は合計ポイント順で表示します。
+- 同点の場合は、3pt票数、2pt票数の順で順位判定します。
+
+## 9. シーズン管理
+
+- シーズンは開始日、終了日、名称を持ちます。
+- 一般ユーザーはシーズン一覧を閲覧できます。
+- シーズン一覧から該当イベント一覧へ遷移する仕様は不要です。
+- 管理者はシーズン作成/編集とCSV出力を行えます。
+
+## 10. CSV出力
+
+CSV出力は管理者のみ利用できます。文字コードはUTF-8 BOM付きとします。
+
+### 10.1 出欠CSV
+
+- ファイル名は `attendance_{seasonId}.csv` とします。
+- 行はユーザー、列はシーズン内イベントとします。
+- 先頭列はユーザー名、ログインIDです。
+- 各イベント列には、出席/欠席/保留/未回答/未登録のいずれかを出力します。
+
+### 10.2 MVP CSV
+
+- ファイル名は `mvp_{seasonId}.csv` とします。
+- シーズン内の各イベントについて、MVP獲得者を出力します。
+- 出力列は、イベント日、タイトル、MVP、合計ポイント、投票数です。
+
+## 11. リマインド通知
+
+Vercel Cron により、毎日 00:00 UTC / 09:00 JST に `/api/cron/reminders` を実行します。
+
+処理内容:
+
+- 翌日JSTのイベントを対象にします。
+- 出欠が `pending` のアクティブユーザーへ通知します。
+- ログインID運用で生成される内部メールアドレス（`@revision.local`）には送信しません。
+- SendGrid設定があり、実メールを持つ既存データの場合のみメール送信します。
+- SendGrid未設定時は送信せず、開発ログに記録します。
+
+`CRON_SECRET` が設定されている場合、次のいずれかの認証を必須とします。
+
+- `Authorization: Bearer <CRON_SECRET>`
+- `X-Cron-Secret: <CRON_SECRET>`
+
+## 12. データモデル概要
+
+### profiles
+
+| カラム | 内容 |
+| --- | --- |
+| id | Supabase Auth user id |
+| email | Supabase Auth用の内部識別子。標準では `${login_id}@revision.local`。ユーザー管理対象ではない |
+| display_name | 表示名 |
+| member_no | メンバー一覧上のNo |
+| uniform_no | ユニフォーム番号 |
+| reading | 氏名の読み |
+| login_id | ログインID。ユーザーがログイン時に入力する値 |
+| role | `admin` または `member` |
+| is_active | 有効状態 |
+| must_change_password | 初回/初期化後のパスワード変更要求 |
+| recovery_question | 復旧用質問 |
+| recovery_answer_salt | 復旧用回答のsalt |
+| recovery_answer_hash | 復旧用回答のhash |
+
+### seasons
+
+| カラム | 内容 |
+| --- | --- |
+| id | シーズンID |
+| name | シーズン名 |
+| start_date | 開始日 |
+| end_date | 終了日 |
+| created_by | 作成者 |
+
+### events
+
+| カラム | 内容 |
+| --- | --- |
+| id | イベントID |
+| season_id | 所属シーズン |
+| title | タイトル |
+| event_type | `practice` / `party` / `camp` |
+| location | 場所 |
+| event_date | 開始日時UTC |
+| end_date | 終了日時UTC |
+| created_by | 作成者 |
+
+### attendances
+
+| カラム | 内容 |
+| --- | --- |
+| id | 出欠ID |
+| event_id | イベントID |
+| user_id | ユーザーID |
+| status | `attending` / `absent` / `tentative` / `pending` |
+| updated_at | 更新日時 |
+
+### mvp_votes
+
+| カラム | 内容 |
+| --- | --- |
+| id | 投票ID |
+| event_id | イベントID |
+| voter_id | 投票者ID |
+| votee_id | 投票先ユーザーID |
+| points | 1 / 2 / 3 |
+| created_at | 投票日時 |
+
+各ポイント枠の複数選択を許可するため、DB制約は「同一イベント、同一投票者、同一投票先ユーザーの重複禁止」を基本とします。「同一イベント、同一投票者、同一ポイントは1件のみ」という制約は採用しません。
+
+## 13. セキュリティ
+
+- ログイン状態は Supabase Auth のCookieで管理します。
+- RLSを有効化し、アクティブユーザーのみ通常データを参照できます。
+- 管理者専用操作はアプリ側の `requireAdmin` とDB側のRLS/Service Roleで保護します。
+- Service Role Key はサーバー側のみで使用し、クライアントに露出させません。
+- 本番環境の環境変数は Vercel Dashboard で管理します。
+
+## 14. 現行実装との整合
+
+本書を正として、現行実装は次の仕様に合わせています。
+
+1. MVP結果画面は管理者のみに制限します。
+2. 一般ユーザーのMVP投票画面には「結果を見る」リンクを表示しません。
+3. MVP投票は各ポイント枠で複数ユーザーを選択できます。
+4. `mvp_votes` は「同一イベント、同一投票者、同一投票先ユーザー」の重複のみ禁止し、同一ポイント内の複数選択を許可します。
+5. 初期管理者は自動昇格ではなく、明示的に作成します。
+6. ログインとユーザー管理はログインIDを正とし、メールアドレス管理は行いません。

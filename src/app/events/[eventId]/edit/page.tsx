@@ -1,10 +1,10 @@
 import { AppShell } from "@/components/AppShell";
 import { updateEventAction } from "@/lib/actions/events";
-import { EVENT_TYPE_LABELS } from "@/lib/constants";
+import { EVENT_TYPE_LABELS, EVENT_TYPE_OPTIONS } from "@/lib/constants";
 import { utcIsoToDateTimeLocal } from "@/lib/dates";
 import { requireAdmin } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import type { Event, EventType, Season } from "@/lib/types";
+import type { Event, Season } from "@/lib/types";
 
 type EditEventPageProps = {
   params: Promise<{ eventId: string }>;
@@ -43,7 +43,7 @@ export default async function EditEventPage({ params }: EditEventPageProps) {
 }
 
 function EventFields({ event, seasons }: { event: Event; seasons: Season[] }) {
-  const eventTypes: EventType[] = ["practice", "match", "party"];
+  const fallbackEndDate = new Date(new Date(event.event_date).getTime() + 2 * 60 * 60 * 1000).toISOString();
 
   return (
     <>
@@ -64,7 +64,7 @@ function EventFields({ event, seasons }: { event: Event; seasons: Season[] }) {
       <div>
         <label className="mb-1 block text-sm font-medium text-slate-600">種別</label>
         <select name="event_type" defaultValue={event.event_type} className="form-input" required>
-          {eventTypes.map((type) => (
+          {EVENT_TYPE_OPTIONS.map((type) => (
             <option value={type} key={type}>
               {EVENT_TYPE_LABELS[type]}
             </option>
@@ -76,12 +76,23 @@ function EventFields({ event, seasons }: { event: Event; seasons: Season[] }) {
         <input name="location" defaultValue={event.location} className="form-input" />
       </div>
       <div>
-        <label className="mb-1 block text-sm font-medium text-slate-600">日時</label>
+        <label className="mb-1 block text-sm font-medium text-slate-600">開始日時</label>
         <input
           name="event_date"
           type="datetime-local"
           step="900"
           defaultValue={utcIsoToDateTimeLocal(event.event_date)}
+          className="form-input"
+          required
+        />
+      </div>
+      <div>
+        <label className="mb-1 block text-sm font-medium text-slate-600">終了日時</label>
+        <input
+          name="end_date"
+          type="datetime-local"
+          step="900"
+          defaultValue={utcIsoToDateTimeLocal(event.end_date ?? fallbackEndDate)}
           className="form-input"
           required
         />

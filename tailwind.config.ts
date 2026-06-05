@@ -9,11 +9,16 @@ const config: Config = {
     extend: {
       colors: {
         primary: {
-          DEFAULT: "#16803c",
-          hover: "#116530",
-          light: "#dff4e6",
+          DEFAULT: "#128044",
+          hover: "#0b6837",
+          light: "#dcf7e6",
         },
-        ink: "#17201a",
+        accent: {
+          DEFAULT: "#0ea5e9",
+          soft: "#e0f2fe",
+        },
+        pitch: "#f3faf5",
+        ink: "#142019",
       },
     },
   },

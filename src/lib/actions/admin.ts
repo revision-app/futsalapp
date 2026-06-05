@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
+import { INITIAL_PASSWORD, loginIdToAuthEmail, normalizeLoginId } from "@/lib/profile";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 function getString(formData: FormData, key: string): string {
@@ -51,32 +52,33 @@ export async function updateUserActiveAction(formData: FormData) {
 
 export async function createUserAction(formData: FormData) {
   await requireAdmin();
-  const email = getString(formData, "email");
+  const loginId = normalizeLoginId(getString(formData, "login_id"));
+  const email = loginIdToAuthEmail(loginId);
   const displayName = getString(formData, "display_name");
-  const password = getString(formData, "temporary_password");
   const role = getString(formData, "role") === "admin" ? "admin" : "member";
 
-  if (!email || !displayName || password.length < 8) {
-    redirect(`/admin/invite?error=${encodeURIComponent("表示名、メールアドレス、一時パスワードを確認してください")}`);
+  if (!loginId || !displayName) {
+    redirect(`/admin/invite?error=${encodeURIComponent("表示名、ログインIDを確認してください")}`);
   }
 
   const admin = createAdminClient();
 
   const { data, error } = await admin.auth.admin.createUser({
     email,
-    password,
+    password: INITIAL_PASSWORD,
     email_confirm: true,
-    user_metadata: { display_name: displayName },
+    user_metadata: { display_name: displayName, login_id: loginId },
   });
 
   if (error || !data.user) {
-    redirect(`/admin/invite?error=${encodeURIComponent("ユーザーを作成できませんでした。同じメールアドレスが既にある可能性があります")}`);
+    redirect(`/admin/invite?error=${encodeURIComponent("ユーザーを作成できませんでした。同じログインIDが既にある可能性があります")}`);
   }
 
   const { error: profileError } = await admin.from("profiles").upsert({
     id: data.user.id,
     email,
     display_name: displayName,
+    login_id: loginId,
     role,
     is_active: true,
     must_change_password: true,
@@ -87,5 +89,5 @@ export async function createUserAction(formData: FormData) {
   }
 
   revalidatePath("/admin/users");
-  redirect(`/admin/invite?message=${encodeURIComponent(`${displayName} を作成しました。一時パスワードを本人に伝えてください`)}`);
+  redirect(`/admin/invite?message=${encodeURIComponent(`${displayName} を作成しました。初期パスワードを本人に伝えてください`)}`);
 }

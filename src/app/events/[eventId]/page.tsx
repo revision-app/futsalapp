@@ -4,9 +4,10 @@ import { AppShell } from "@/components/AppShell";
 import { AttendanceControls } from "@/components/AttendanceControls";
 import { EventTypeBadge } from "@/components/EventTypeBadge";
 import { deleteEventAction } from "@/lib/actions/events";
-import { ATTENDANCE_LABELS } from "@/lib/constants";
-import { formatDateTimeJst } from "@/lib/dates";
+import { ATTENDANCE_LABELS, ATTENDANCE_STATUS_OPTIONS, MVP_EVENT_TYPES } from "@/lib/constants";
+import { formatEventDateTimeRangeJst } from "@/lib/dates";
 import { requireUser } from "@/lib/auth";
+import { getProfileDisplayName } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/server";
 import type { Attendance, AttendanceStatus, Event, Profile, Season } from "@/lib/types";
 
@@ -48,6 +49,7 @@ export default async function EventDetailPage({ params }: EventDetailPageProps) 
   const grouped = {
     attending: attendanceRows.filter((row) => row.status === "attending"),
     absent: attendanceRows.filter((row) => row.status === "absent"),
+    tentative: attendanceRows.filter((row) => row.status === "tentative"),
     pending: attendanceRows.filter((row) => row.status === "pending"),
   } satisfies Record<AttendanceStatus, AttendanceWithProfile[]>;
 
@@ -62,7 +64,9 @@ export default async function EventDetailPage({ params }: EventDetailPageProps) 
             {eventRow.seasons?.name ? <span className="text-sm text-slate-500">{eventRow.seasons.name}</span> : null}
           </div>
           <h1 className="text-xl font-bold text-ink">{eventRow.title}</h1>
-          <p className="mt-1 text-sm text-slate-600">{formatDateTimeJst(eventRow.event_date)}</p>
+          <p className="mt-1 text-sm text-slate-600">
+            {formatEventDateTimeRangeJst(eventRow.event_date, eventRow.end_date)}
+          </p>
           <p className="mt-1 text-sm text-slate-500">{eventRow.location || "場所未設定"}</p>
         </div>
       </div>
@@ -72,7 +76,7 @@ export default async function EventDetailPage({ params }: EventDetailPageProps) 
         <AttendanceControls eventId={eventId} currentStatus={myAttendance?.status ?? "pending"} />
       </section>
 
-      {eventRow.event_type !== "party" ? (
+      {MVP_EVENT_TYPES.includes(eventRow.event_type) ? (
         <Link href={`/mvp/${eventId}`} className="btn-secondary mb-4 w-full">
           <Trophy className="h-4 w-4" />
           MVP投票へ
@@ -80,7 +84,7 @@ export default async function EventDetailPage({ params }: EventDetailPageProps) 
       ) : null}
 
       <section className="space-y-3">
-        {(Object.keys(grouped) as AttendanceStatus[]).map((status) => (
+        {ATTENDANCE_STATUS_OPTIONS.map((status) => (
           <div className="card p-4" key={status}>
             <h2 className="mb-3 text-sm font-bold text-slate-700">
               {ATTENDANCE_LABELS[status]} {grouped[status].length}人
@@ -91,7 +95,7 @@ export default async function EventDetailPage({ params }: EventDetailPageProps) 
               ) : (
                 grouped[status].map((attendance) => (
                   <span className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700" key={attendance.id}>
-                    {attendance.profiles?.display_name || attendance.profiles?.email || "不明なユーザー"}
+                    {attendance.profiles ? getProfileDisplayName(attendance.profiles) : "不明なユーザー"}
                   </span>
                 ))
               )}

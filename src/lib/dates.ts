@@ -1,5 +1,18 @@
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
+const JST_DATE_FORMATTER = new Intl.DateTimeFormat("ja-JP", {
+  timeZone: "Asia/Tokyo",
+  month: "2-digit",
+  day: "2-digit",
+  weekday: "short",
+});
+
+const JST_TIME_FORMATTER = new Intl.DateTimeFormat("ja-JP", {
+  timeZone: "Asia/Tokyo",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 export function formatDateTimeJst(value: string | Date): string {
   const date = typeof value === "string" ? new Date(value) : value;
   return new Intl.DateTimeFormat("ja-JP", {
@@ -10,6 +23,25 @@ export function formatDateTimeJst(value: string | Date): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+export function formatEventDateTimeRangeJst(startValue: string | Date, endValue?: string | Date | null): string {
+  if (!endValue) {
+    return formatDateTimeJst(startValue);
+  }
+
+  const start = typeof startValue === "string" ? new Date(startValue) : startValue;
+  const end = typeof endValue === "string" ? new Date(endValue) : endValue;
+  const startDate = JST_DATE_FORMATTER.format(start);
+  const endDate = JST_DATE_FORMATTER.format(end);
+  const startTime = JST_TIME_FORMATTER.format(start);
+  const endTime = JST_TIME_FORMATTER.format(end);
+
+  if (startDate === endDate) {
+    return `${startDate} ${startTime}-${endTime}`;
+  }
+
+  return `${startDate} ${startTime} - ${endDate} ${endTime}`;
 }
 
 export function formatDateJst(value: string | Date): string {

@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
+import { loginIdToAuthEmail, normalizeLoginId } from "@/lib/profile";
 import { createRecoveryAnswerHash, verifyRecoveryAnswer } from "@/lib/recovery";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -15,11 +16,14 @@ function redirectWithError(path: string, message: string): never {
 }
 
 export async function loginAction(formData: FormData) {
-  const email = getString(formData, "email");
+  const loginId = normalizeLoginId(getString(formData, "login_id"));
   const password = getString(formData, "password");
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { error } = await supabase.auth.signInWithPassword({
+    email: loginIdToAuthEmail(loginId),
+    password,
+  });
 
   if (error) {
     if (error.message.toLowerCase().includes("email not confirmed")) {
@@ -28,7 +32,7 @@ export async function loginAction(formData: FormData) {
         "このアカウントはまだログインできる状態ではありません。管理者に確認してください。"
       );
     }
-    redirectWithError("/login", "メールアドレスまたはパスワードが正しくありません");
+    redirectWithError("/login", "ログインIDまたはパスワードが正しくありません");
   }
 
   const profile = await requireUser({ allowPasswordSetup: true });
@@ -45,30 +49,30 @@ export async function registerAction(formData: FormData) {
 }
 
 export async function findRecoveryQuestionAction(formData: FormData) {
-  const email = getString(formData, "email");
+  const loginId = normalizeLoginId(getString(formData, "login_id"));
   const admin = createAdminClient();
   const { data } = await admin
     .from("profiles")
-    .select("email,recovery_question")
-    .eq("email", email)
+    .select("login_id,recovery_question")
+    .eq("login_id", loginId)
     .maybeSingle();
 
   if (!data?.recovery_question) {
     redirectWithError("/forgot-password", "復旧用の質問が未設定です。管理者に初期化を依頼してください");
   }
 
-  redirect(`/forgot-password?email=${encodeURIComponent(email)}`);
+  redirect(`/forgot-password?login_id=${encodeURIComponent(loginId)}`);
 }
 
 export async function resetPasswordWithRecoveryAction(formData: FormData) {
-  const email = getString(formData, "email");
+  const loginId = normalizeLoginId(getString(formData, "login_id"));
   const answer = getString(formData, "recovery_answer");
   const password = getString(formData, "password");
   const confirm = getString(formData, "password_confirm");
 
   if (password.length < 8 || password !== confirm) {
     redirectWithError(
-      `/forgot-password?email=${encodeURIComponent(email)}`,
+      `/forgot-password?login_id=${encodeURIComponent(loginId)}`,
       "パスワードは8文字以上で、確認欄と一致させてください"
     );
   }
@@ -77,7 +81,7 @@ export async function resetPasswordWithRecoveryAction(formData: FormData) {
   const { data: profile } = await admin
     .from("profiles")
     .select("id,recovery_answer_salt,recovery_answer_hash")
-    .eq("email", email)
+    .eq("login_id", loginId)
     .maybeSingle();
 
   if (!profile?.recovery_answer_salt || !profile.recovery_answer_hash) {
@@ -86,12 +90,12 @@ export async function resetPasswordWithRecoveryAction(formData: FormData) {
 
   const ok = verifyRecoveryAnswer(answer, profile.recovery_answer_salt, profile.recovery_answer_hash);
   if (!ok) {
-    redirectWithError(`/forgot-password?email=${encodeURIComponent(email)}`, "復旧用の答えが正しくありません");
+    redirectWithError(`/forgot-password?login_id=${encodeURIComponent(loginId)}`, "復旧用の答えが正しくありません");
   }
 
   const { error } = await admin.auth.admin.updateUserById(profile.id, { password });
   if (error) {
-    redirectWithError(`/forgot-password?email=${encodeURIComponent(email)}`, "パスワードを更新できませんでした");
+    redirectWithError(`/forgot-password?login_id=${encodeURIComponent(loginId)}`, "パスワードを更新できませんでした");
   }
 
   await admin.from("profiles").update({ must_change_password: false }).eq("id", profile.id);

@@ -9,15 +9,23 @@ function getString(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
 }
 
+function getStrings(formData: FormData, key: string): string[] {
+  return formData
+    .getAll(key)
+    .map((value) => String(value).trim())
+    .filter(Boolean);
+}
+
 export async function submitMvpVoteAction(formData: FormData) {
   const currentUser = await requireUser();
   const eventId = getString(formData, "event_id");
   const selections = [3, 2, 1]
-    .map((points) => ({
-      points,
-      votee_id: getString(formData, `votee_${points}`),
-    }))
-    .filter((row) => row.votee_id);
+    .flatMap((points) =>
+      getStrings(formData, `votee_${points}`).map((voteeId) => ({
+        points,
+        votee_id: voteeId,
+      }))
+    );
 
   if (selections.length === 0) {
     throw new Error("1件以上投票してください。");
@@ -50,5 +58,5 @@ export async function submitMvpVoteAction(formData: FormData) {
 
   revalidatePath(`/mvp/${eventId}`);
   revalidatePath(`/mvp/${eventId}/results`);
-  redirect(`/mvp/${eventId}/results`);
+  redirect(currentUser.role === "admin" ? `/mvp/${eventId}/results` : `/mvp/${eventId}`);
 }

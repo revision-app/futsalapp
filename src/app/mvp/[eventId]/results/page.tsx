@@ -2,8 +2,9 @@ import Link from "next/link";
 import { Trophy } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { EventTypeBadge } from "@/components/EventTypeBadge";
-import { formatDateTimeJst } from "@/lib/dates";
-import { requireUser } from "@/lib/auth";
+import { formatEventDateTimeRangeJst } from "@/lib/dates";
+import { requireAdmin } from "@/lib/auth";
+import { getProfileDisplayName } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/server";
 import type { Event, MvpVote, Profile } from "@/lib/types";
 
@@ -15,7 +16,7 @@ type MvpResultsPageProps = {
 
 export default async function MvpResultsPage({ params }: MvpResultsPageProps) {
   const { eventId } = await params;
-  const profile = await requireUser();
+  const profile = await requireAdmin();
   const supabase = await createClient();
 
   const [{ data: event }, { data: votes }] = await Promise.all([
@@ -67,7 +68,9 @@ export default async function MvpResultsPage({ params }: MvpResultsPageProps) {
       <div className="mb-4">
         <div className="mb-2 flex items-center gap-2">
           <EventTypeBadge type={eventRow.event_type} />
-          <span className="text-sm text-slate-500">{formatDateTimeJst(eventRow.event_date)}</span>
+          <span className="text-sm text-slate-500">
+            {formatEventDateTimeRangeJst(eventRow.event_date, eventRow.end_date)}
+          </span>
         </div>
         <h1 className="text-xl font-bold text-ink">MVP結果</h1>
         <p className="mt-1 text-sm text-slate-500">
@@ -85,7 +88,7 @@ export default async function MvpResultsPage({ params }: MvpResultsPageProps) {
                 {index === 0 ? <Trophy className="h-5 w-5" /> : index + 1}
               </div>
               <div className="min-w-0 flex-1">
-                <h2 className="truncate font-bold text-ink">{row.user.display_name || row.user.email}</h2>
+                <h2 className="truncate font-bold text-ink">{getProfileDisplayName(row.user)}</h2>
                 <p className="text-sm text-slate-500">
                   3pt: {row.pt3} / 2pt: {row.pt2} / 1pt: {row.pt1}
                 </p>

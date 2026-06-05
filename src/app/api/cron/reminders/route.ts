@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { SITE_URL } from "@/lib/constants";
 import { sendMail } from "@/lib/email";
 import { tomorrowJstUtcRange } from "@/lib/dates";
+import { getProfileDisplayName, isInternalAuthEmail } from "@/lib/profile";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Attendance, Event, Profile } from "@/lib/types";
 
@@ -31,6 +32,7 @@ export async function GET(request: Request) {
   }
 
   let sent = 0;
+  let skipped = 0;
   for (const event of (events ?? []) as Event[]) {
     const { data: attendances } = await admin
       .from("attendances")
@@ -41,12 +43,16 @@ export async function GET(request: Request) {
     for (const attendance of (attendances ?? []) as AttendanceWithProfile[]) {
       const user = attendance.profiles;
       if (!user?.is_active) continue;
+      if (isInternalAuthEmail(user.email)) {
+        skipped += 1;
+        continue;
+      }
 
       const ok = await sendMail({
         to: user.email,
         subject: `【REVISION】明日のイベントリマインド: ${event.title}`,
         html: `
-          <p>${user.display_name || user.email} さん</p>
+          <p>${getProfileDisplayName(user)} さん</p>
           <p>明日のイベントの出欠が未回答です。</p>
           <p><strong>${event.title}</strong></p>
           <p><a href="${SITE_URL}/events/${event.id}">${SITE_URL}/events/${event.id}</a></p>
@@ -56,5 +62,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ sent });
+  return NextResponse.json({ sent, skipped });
 }

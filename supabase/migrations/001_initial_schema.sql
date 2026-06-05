@@ -7,13 +7,13 @@ exception
 end $$;
 
 do $$ begin
-  create type public.event_type as enum ('practice', 'match', 'party');
+  create type public.event_type as enum ('practice', 'party', 'camp');
 exception
   when duplicate_object then null;
 end $$;
 
 do $$ begin
-  create type public.attendance_status as enum ('attending', 'absent', 'pending');
+  create type public.attendance_status as enum ('attending', 'absent', 'tentative', 'pending');
 exception
   when duplicate_object then null;
 end $$;
@@ -22,6 +22,10 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null,
   display_name text not null default '',
+  member_no integer,
+  uniform_no integer,
+  reading text,
+  login_id text,
   role public.member_role not null default 'member',
   is_active boolean not null default true,
   must_change_password boolean not null default false,
@@ -33,6 +37,7 @@ create table if not exists public.profiles (
 );
 
 create unique index if not exists profiles_email_key on public.profiles (lower(email));
+create unique index if not exists profiles_login_id_key on public.profiles (lower(login_id)) where login_id is not null;
 create index if not exists profiles_must_change_password_idx on public.profiles (must_change_password);
 
 create table if not exists public.seasons (
@@ -52,6 +57,7 @@ create table if not exists public.events (
   event_type public.event_type not null,
   location text not null default '',
   event_date timestamptz not null,
+  end_date timestamptz,
   created_by uuid not null references public.profiles(id),
   created_at timestamptz not null default now()
 );
@@ -72,7 +78,6 @@ create table if not exists public.mvp_votes (
   votee_id uuid not null references public.profiles(id) on delete cascade,
   points integer not null check (points in (1, 2, 3)),
   created_at timestamptz not null default now(),
-  constraint uq_mvp_vote_event_voter_points unique (event_id, voter_id, points),
   constraint uq_mvp_vote_event_voter_votee unique (event_id, voter_id, votee_id)
 );
 
@@ -103,15 +108,17 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles (id, email, display_name)
+  insert into public.profiles (id, email, display_name, login_id)
   values (
     new.id,
     coalesce(new.email, ''),
-    coalesce(new.raw_user_meta_data ->> 'display_name', '')
+    coalesce(new.raw_user_meta_data ->> 'display_name', ''),
+    lower(coalesce(new.raw_user_meta_data ->> 'login_id', split_part(coalesce(new.email, ''), '@', 1)))
   )
   on conflict (id) do update
     set email = excluded.email,
-        display_name = coalesce(nullif(excluded.display_name, ''), public.profiles.display_name);
+        display_name = coalesce(nullif(excluded.display_name, ''), public.profiles.display_name),
+        login_id = coalesce(nullif(excluded.login_id, ''), public.profiles.login_id);
 
   return new;
 end;

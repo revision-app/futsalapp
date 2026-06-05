@@ -11,6 +11,17 @@ function getString(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
 }
 
+function getEventTimeRange(formData: FormData): { start: string; end: string } {
+  const start = dateTimeLocalToUtcIso(getString(formData, "event_date"));
+  const end = dateTimeLocalToUtcIso(getString(formData, "end_date"));
+
+  if (new Date(end).getTime() <= new Date(start).getTime()) {
+    throw new Error("終了日時は開始日時より後にしてください。");
+  }
+
+  return { start, end };
+}
+
 async function createPendingAttendances(eventId: string) {
   const admin = createAdminClient();
   const { data: members, error } = await admin
@@ -37,6 +48,7 @@ async function createPendingAttendances(eventId: string) {
 export async function createEventAction(formData: FormData) {
   const currentUser = await requireAdmin();
   const admin = createAdminClient();
+  const timeRange = getEventTimeRange(formData);
 
   const { data, error } = await admin
     .from("events")
@@ -45,7 +57,8 @@ export async function createEventAction(formData: FormData) {
       title: getString(formData, "title"),
       event_type: getString(formData, "event_type") as EventType,
       location: getString(formData, "location"),
-      event_date: dateTimeLocalToUtcIso(getString(formData, "event_date")),
+      event_date: timeRange.start,
+      end_date: timeRange.end,
       created_by: currentUser.id,
     })
     .select("id")
@@ -62,6 +75,7 @@ export async function updateEventAction(formData: FormData) {
   await requireAdmin();
   const eventId = getString(formData, "event_id");
   const admin = createAdminClient();
+  const timeRange = getEventTimeRange(formData);
 
   const { error } = await admin
     .from("events")
@@ -70,7 +84,8 @@ export async function updateEventAction(formData: FormData) {
       title: getString(formData, "title"),
       event_type: getString(formData, "event_type") as EventType,
       location: getString(formData, "location"),
-      event_date: dateTimeLocalToUtcIso(getString(formData, "event_date")),
+      event_date: timeRange.start,
+      end_date: timeRange.end,
     })
     .eq("id", eventId);
 

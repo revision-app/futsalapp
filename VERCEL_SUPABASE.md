@@ -4,7 +4,7 @@
 
 - Vercel: Next.js App Router
 - Supabase: Auth + Postgres
-- Supabase Auth: 登録、ログイン、招待、パスワード再設定
+- Supabase Auth: ログインIDによるログイン、管理者作成、パスワード再設定
 - Vercel Cron: 毎日 00:00 UTC / 09:00 JST に `/api/cron/reminders`
 - SendGrid: イベントリマインドメールのみ任意
 
@@ -25,7 +25,9 @@
   - `http://localhost:3000/auth/callback`
   - `https://<your-vercel-domain>/auth/callback`
 
-初回登録ユーザーはアプリ側で自動的に `admin` になります。以降の権限変更は `/admin/users` から行います。
+初期管理者は Supabase または管理用SQLで明示的に `admin` として作成します。初回登録ユーザーを自動的に `admin` にする仕様ではありません。以降の権限変更は `/admin/users` から行います。
+
+ユーザーは `saitoy` のようなログインIDで管理します。Supabase Auth の内部識別子として `${login_id}@revision.local` を使いますが、メールアドレスとしては管理しません。
 
 ## Vercel環境変数
 

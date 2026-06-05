@@ -4,20 +4,20 @@ import { Notice } from "@/components/Notice";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type ForgotPasswordPageProps = {
-  searchParams?: Promise<{ email?: string; error?: string }>;
+  searchParams?: Promise<{ login_id?: string; error?: string }>;
 };
 
 export default async function ForgotPasswordPage({ searchParams }: ForgotPasswordPageProps) {
   const params = await searchParams;
-  const email = params?.email ?? "";
+  const loginId = params?.login_id ?? "";
   let question = "";
 
-  if (email) {
+  if (loginId) {
     const admin = createAdminClient();
     const { data } = await admin
       .from("profiles")
       .select("recovery_question")
-      .eq("email", email)
+      .eq("login_id", loginId)
       .maybeSingle();
     question = data?.recovery_question ?? "";
   }
@@ -31,11 +31,11 @@ export default async function ForgotPasswordPage({ searchParams }: ForgotPasswor
         </div>
         <div className="card space-y-4 p-6">
           <Notice error={params?.error} />
-          {!email ? (
+          {!loginId ? (
             <form action={findRecoveryQuestionAction} className="space-y-4">
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-600">メールアドレス</label>
-                <input className="form-input" type="email" name="email" autoComplete="email" required />
+                <label className="mb-1 block text-sm font-medium text-slate-600">ログインID</label>
+                <input className="form-input" type="text" name="login_id" autoComplete="username" required />
               </div>
               <button type="submit" className="btn-primary w-full">
                 復旧用の質問を確認する
@@ -43,7 +43,7 @@ export default async function ForgotPasswordPage({ searchParams }: ForgotPasswor
             </form>
           ) : (
             <form action={resetPasswordWithRecoveryAction} className="space-y-4">
-              <input type="hidden" name="email" value={email} />
+              <input type="hidden" name="login_id" value={loginId} />
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-600">復旧用の質問</label>
                 <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-ink">{question || "未設定"}</p>

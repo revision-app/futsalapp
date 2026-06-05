@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { csvEscape, formatDateJst } from "@/lib/dates";
 import { getCurrentProfile } from "@/lib/auth";
+import { getProfileDisplayName } from "@/lib/profile";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Event, MvpVote, Profile } from "@/lib/types";
 
@@ -52,7 +53,7 @@ export async function GET(_request: Request, context: RouteContext) {
     rows.push([
       formatDateJst(event.event_date),
       event.title,
-      winner ? winner.user.display_name || winner.user.email : "投票なし",
+      winner ? getProfileDisplayName(winner.user) : "投票なし",
       String(winner?.total ?? 0),
       String(winner?.votes ?? 0),
     ]);

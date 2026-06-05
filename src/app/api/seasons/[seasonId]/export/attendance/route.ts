@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ATTENDANCE_LABELS } from "@/lib/constants";
 import { csvEscape, formatDateJst } from "@/lib/dates";
 import { getCurrentProfile } from "@/lib/auth";
+import { getProfileDisplayName, getProfileLoginId } from "@/lib/profile";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Attendance, Event, Profile } from "@/lib/types";
 
@@ -41,10 +42,10 @@ export async function GET(_request: Request, context: RouteContext) {
   );
 
   const rows = [
-    ["ユーザー名", "メールアドレス", ...eventRows.map((event) => `${formatDateJst(event.event_date)} ${event.title}`)],
+    ["ユーザー名", "ログインID", ...eventRows.map((event) => `${formatDateJst(event.event_date)} ${event.title}`)],
     ...userRows.map((user) => [
-      user.display_name || user.email,
-      user.email,
+      getProfileDisplayName(user),
+      getProfileLoginId(user),
       ...eventRows.map((event) => attendanceMap.get(`${event.id}:${user.id}`) ?? "未登録"),
     ]),
   ];

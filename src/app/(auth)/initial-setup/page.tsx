@@ -1,6 +1,7 @@
 import { completeInitialSetupAction } from "@/lib/actions/auth";
 import { requireUser } from "@/lib/auth";
 import { Notice } from "@/components/Notice";
+import { getProfileDisplayName } from "@/lib/profile";
 
 type InitialSetupPageProps = {
   searchParams?: Promise<{ error?: string }>;
@@ -15,7 +16,7 @@ export default async function InitialSetupPage({ searchParams }: InitialSetupPag
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
           <h1 className="text-2xl font-bold text-ink">初回設定</h1>
-          <p className="mt-1 text-sm text-slate-500">{profile.display_name || profile.email} さんの設定</p>
+          <p className="mt-1 text-sm text-slate-500">{getProfileDisplayName(profile)} さんの設定</p>
         </div>
         <div className="card space-y-4 p-6">
           <Notice error={params?.error} />

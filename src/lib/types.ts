@@ -1,11 +1,15 @@
 export type MemberRole = "admin" | "member";
-export type EventType = "practice" | "match" | "party";
-export type AttendanceStatus = "attending" | "absent" | "pending";
+export type EventType = "practice" | "match" | "party" | "camp";
+export type AttendanceStatus = "attending" | "absent" | "tentative" | "pending";
 
 export type Profile = {
   id: string;
   email: string;
   display_name: string;
+  member_no: number | null;
+  uniform_no: number | null;
+  reading: string | null;
+  login_id: string | null;
   role: MemberRole;
   is_active: boolean;
   must_change_password: boolean;
@@ -32,6 +36,7 @@ export type Event = {
   event_type: EventType;
   location: string;
   event_date: string;
+  end_date: string | null;
   created_by: string;
   created_at: string;
 };

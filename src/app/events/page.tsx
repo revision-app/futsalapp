@@ -4,7 +4,7 @@ import { AppShell } from "@/components/AppShell";
 import { AttendanceControls } from "@/components/AttendanceControls";
 import { EventTypeBadge } from "@/components/EventTypeBadge";
 import { ATTENDANCE_LABELS, ATTENDANCE_STYLES } from "@/lib/constants";
-import { formatDateTimeJst } from "@/lib/dates";
+import { formatEventDateTimeRangeJst } from "@/lib/dates";
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { Attendance, AttendanceStatus, Event, Season } from "@/lib/types";
@@ -103,7 +103,9 @@ export default async function EventsPage({ searchParams }: EventsPageProps) {
                     <Link href={`/events/${event.id}`} className="block truncate text-base font-bold text-ink hover:text-primary">
                       {event.title}
                     </Link>
-                    <p className="mt-1 text-sm text-slate-600">{formatDateTimeJst(event.event_date)}</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {formatEventDateTimeRangeJst(event.event_date, event.end_date)}
+                    </p>
                     <p className="mt-1 truncate text-sm text-slate-500">{event.location || "場所未設定"}</p>
                     {event.seasons?.name ? (
                       <p className="mt-1 text-xs text-slate-400">{event.seasons.name}</p>
