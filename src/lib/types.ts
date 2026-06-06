@@ -1,6 +1,7 @@
 export type MemberRole = "admin" | "member";
 export type EventType = "practice" | "match" | "party" | "camp";
 export type AttendanceStatus = "attending" | "absent" | "tentative" | "pending";
+export type FeedbackType = "opinion" | "request" | "bug" | "other";
 
 export type Profile = {
   id: string;
@@ -55,5 +56,14 @@ export type MvpVote = {
   voter_id: string;
   votee_id: string;
   points: number;
+  created_at: string;
+};
+
+export type FeedbackItem = {
+  id: string;
+  user_id: string;
+  feedback_type: FeedbackType;
+  title: string;
+  body: string;
   created_at: string;
 };

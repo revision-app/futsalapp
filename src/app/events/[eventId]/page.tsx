@@ -3,6 +3,7 @@ import { Pencil, Trophy, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { AttendanceControls } from "@/components/AttendanceControls";
 import { EventTypeBadge } from "@/components/EventTypeBadge";
+import { Notice } from "@/components/Notice";
 import { deleteEventAction } from "@/lib/actions/events";
 import { ATTENDANCE_LABELS, ATTENDANCE_STATUS_OPTIONS, MVP_EVENT_TYPES } from "@/lib/constants";
 import { formatEventDateTimeRangeJst } from "@/lib/dates";
@@ -16,10 +17,12 @@ type AttendanceWithProfile = Attendance & { profiles: Profile | null };
 
 type EventDetailPageProps = {
   params: Promise<{ eventId: string }>;
+  searchParams?: Promise<{ error?: string }>;
 };
 
-export default async function EventDetailPage({ params }: EventDetailPageProps) {
+export default async function EventDetailPage({ params, searchParams }: EventDetailPageProps) {
   const { eventId } = await params;
+  const query = await searchParams;
   const profile = await requireUser();
   const supabase = await createClient();
 
@@ -45,6 +48,8 @@ export default async function EventDetailPage({ params }: EventDetailPageProps) 
 
   const attendanceRows = (attendances ?? []) as AttendanceWithProfile[];
   const myAttendance = attendanceRows.find((row) => row.user_id === profile.id);
+  const isMvpEvent = MVP_EVENT_TYPES.includes((event as EventDetail).event_type);
+  const canVoteMvp = myAttendance?.status === "attending";
 
   const grouped = {
     attending: attendanceRows.filter((row) => row.status === "attending"),
@@ -71,15 +76,32 @@ export default async function EventDetailPage({ params }: EventDetailPageProps) 
         </div>
       </div>
 
+      <div className="mb-4">
+        <Notice error={query?.error} />
+      </div>
+
       <section className="card mb-4 p-4">
         <h2 className="mb-3 text-sm font-bold text-slate-700">自分の出欠</h2>
         <AttendanceControls eventId={eventId} currentStatus={myAttendance?.status ?? "pending"} />
       </section>
 
-      {MVP_EVENT_TYPES.includes(eventRow.event_type) ? (
+      {isMvpEvent && canVoteMvp ? (
         <Link href={`/mvp/${eventId}`} className="btn-secondary mb-4 w-full">
           <Trophy className="h-4 w-4" />
           MVP投票へ
+        </Link>
+      ) : null}
+
+      {isMvpEvent && !canVoteMvp ? (
+        <div className="card mb-4 p-4 text-sm text-slate-600">
+          MVP投票は出席者のみ可能です。
+        </div>
+      ) : null}
+
+      {isMvpEvent && profile.role === "admin" ? (
+        <Link href={`/mvp/${eventId}/results`} className="btn-secondary mb-4 w-full">
+          <Trophy className="h-4 w-4" />
+          MVP結果を見る
         </Link>
       ) : null}
 

@@ -18,6 +18,12 @@ exception
   when duplicate_object then null;
 end $$;
 
+do $$ begin
+  create type public.feedback_type as enum ('opinion', 'request', 'bug', 'other');
+exception
+  when duplicate_object then null;
+end $$;
+
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null,
@@ -80,6 +86,21 @@ create table if not exists public.mvp_votes (
   created_at timestamptz not null default now(),
   constraint uq_mvp_vote_event_voter_votee unique (event_id, voter_id, votee_id)
 );
+
+create table if not exists public.feedback_items (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  feedback_type public.feedback_type not null default 'opinion',
+  title text not null default '',
+  body text not null,
+  created_at timestamptz not null default now(),
+  constraint feedback_items_title_length check (char_length(title) <= 120),
+  constraint feedback_items_body_not_blank check (char_length(btrim(body)) > 0),
+  constraint feedback_items_body_length check (char_length(body) <= 2000)
+);
+
+create index if not exists feedback_items_created_at_idx on public.feedback_items (created_at desc);
+create index if not exists feedback_items_user_id_idx on public.feedback_items (user_id);
 
 create or replace function public.touch_updated_at()
 returns trigger
@@ -160,11 +181,88 @@ as $$
   );
 $$;
 
+create or replace function public.prevent_invalid_mvp_vote()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (
+    select 1
+    from public.events
+    where id = new.event_id
+      and event_type = 'practice'
+  ) then
+    raise exception 'MVP votes are only allowed for practice events.';
+  end if;
+
+  if not exists (
+    select 1
+    from public.attendances
+    where event_id = new.event_id
+      and user_id = new.voter_id
+      and status = 'attending'
+  ) then
+    raise exception 'MVP voters must be attending the event.';
+  end if;
+
+  if not exists (
+    select 1
+    from public.attendances
+    where event_id = new.event_id
+      and user_id = new.votee_id
+      and status = 'attending'
+  ) then
+    raise exception 'MVP vote targets must be attending the event.';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists mvp_votes_validate_attendance on public.mvp_votes;
+create trigger mvp_votes_validate_attendance
+before insert or update of event_id, voter_id, votee_id
+on public.mvp_votes
+for each row execute function public.prevent_invalid_mvp_vote();
+
+create or replace function public.prevent_member_mvp_attendance_conflict()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.status <> 'attending'
+    and auth.uid() is not null
+    and not public.is_admin()
+    and exists (
+      select 1
+      from public.mvp_votes
+      where event_id = new.event_id
+        and (voter_id = new.user_id or votee_id = new.user_id)
+    )
+  then
+    raise exception 'Attendance cannot be changed from attending after related MVP votes exist.';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists attendances_prevent_mvp_conflict on public.attendances;
+create trigger attendances_prevent_mvp_conflict
+before insert or update of status
+on public.attendances
+for each row execute function public.prevent_member_mvp_attendance_conflict();
+
 alter table public.profiles enable row level security;
 alter table public.seasons enable row level security;
 alter table public.events enable row level security;
 alter table public.attendances enable row level security;
 alter table public.mvp_votes enable row level security;
+alter table public.feedback_items enable row level security;
 
 drop policy if exists "profiles_select_members" on public.profiles;
 create policy "profiles_select_members"
@@ -232,10 +330,11 @@ using (public.is_admin())
 with check (public.is_admin());
 
 drop policy if exists "mvp_votes_select_members" on public.mvp_votes;
-create policy "mvp_votes_select_members"
+drop policy if exists "mvp_votes_self_select" on public.mvp_votes;
+create policy "mvp_votes_self_select"
 on public.mvp_votes for select
 to authenticated
-using (public.is_active_member());
+using (voter_id = auth.uid() and public.is_active_member());
 
 drop policy if exists "mvp_votes_self_insert" on public.mvp_votes;
 create policy "mvp_votes_self_insert"
@@ -259,6 +358,25 @@ using (voter_id = auth.uid() and public.is_active_member());
 drop policy if exists "mvp_votes_admin_all" on public.mvp_votes;
 create policy "mvp_votes_admin_all"
 on public.mvp_votes for all
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "feedback_items_self_select" on public.feedback_items;
+create policy "feedback_items_self_select"
+on public.feedback_items for select
+to authenticated
+using (user_id = auth.uid() and public.is_active_member());
+
+drop policy if exists "feedback_items_self_insert" on public.feedback_items;
+create policy "feedback_items_self_insert"
+on public.feedback_items for insert
+to authenticated
+with check (user_id = auth.uid() and public.is_active_member());
+
+drop policy if exists "feedback_items_admin_all" on public.feedback_items;
+create policy "feedback_items_admin_all"
+on public.feedback_items for all
 to authenticated
 using (public.is_admin())
 with check (public.is_admin());

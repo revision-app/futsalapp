@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { CalendarDays, Layers3, LogOut, Settings } from "lucide-react";
+import { CalendarDays, Layers3, LogOut, MessageSquareText, Settings } from "lucide-react";
 import { signOutAction } from "@/lib/actions/auth";
 import { getProfileDisplayName } from "@/lib/profile";
 import type { Profile } from "@/lib/types";
 
 type AppShellProps = {
   profile: Profile;
-  active: "events" | "seasons" | "admin" | "mvp";
+  active: "events" | "seasons" | "admin" | "mvp" | "feedback";
   children: React.ReactNode;
 };
 
@@ -45,19 +45,22 @@ export function AppShell({ profile, active, children }: AppShellProps) {
       <main className="mx-auto max-w-3xl px-4 py-5">{children}</main>
 
       <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 shadow-[0_-8px_24px_rgba(15,23,42,0.06)] backdrop-blur">
-        <div className="mx-auto grid max-w-3xl grid-cols-3">
+        <div className={`mx-auto grid max-w-3xl ${profile.role === "admin" ? "grid-cols-4" : "grid-cols-3"}`}>
           <NavItem href="/events" label="イベント" active={active === "events" || active === "mvp"}>
             <CalendarDays className="h-5 w-5" />
           </NavItem>
           <NavItem href="/seasons" label="シーズン" active={active === "seasons"}>
             <Layers3 className="h-5 w-5" />
           </NavItem>
+          <NavItem href="/feedback" label="ご意見" active={active === "feedback"}>
+            <MessageSquareText className="h-5 w-5" />
+          </NavItem>
           {profile.role === "admin" ? (
             <NavItem href="/admin" label="管理" active={active === "admin"}>
               <Settings className="h-5 w-5" />
             </NavItem>
           ) : (
-            <div />
+            null
           )}
         </div>
       </nav>
