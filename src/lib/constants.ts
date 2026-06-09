@@ -1,7 +1,7 @@
 import type { AttendanceStatus, EventType, FeedbackType } from "@/lib/types";
 
 export const EVENT_TYPE_OPTIONS: EventType[] = ["practice", "party", "camp"];
-export const MVP_EVENT_TYPES: EventType[] = ["practice"];
+export const MVP_EVENT_TYPES: EventType[] = ["practice", "camp"];
 export const ATTENDANCE_STATUS_OPTIONS: AttendanceStatus[] = ["attending", "absent", "tentative", "pending"];
 export const FEEDBACK_TYPE_OPTIONS: FeedbackType[] = ["opinion", "request", "bug", "other"];
 

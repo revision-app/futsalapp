@@ -2,6 +2,8 @@ export type MemberRole = "admin" | "member";
 export type EventType = "practice" | "match" | "party" | "camp";
 export type AttendanceStatus = "attending" | "absent" | "tentative" | "pending";
 export type FeedbackType = "opinion" | "request" | "bug" | "other";
+export type MatchSessionStatus = "draft" | "confirmed";
+export type MatchTeam = "rev1" | "rev2";
 
 export type Profile = {
   id: string;
@@ -66,4 +68,48 @@ export type FeedbackItem = {
   title: string;
   body: string;
   created_at: string;
+};
+
+export type MatchSession = {
+  id: string;
+  event_id: string;
+  session_no: number;
+  status: MatchSessionStatus;
+  created_by: string;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MatchSessionPlayer = {
+  id: string;
+  session_id: string;
+  user_id: string;
+  team: MatchTeam;
+  created_at: string;
+};
+
+export type MatchGame = {
+  id: string;
+  session_id: string;
+  game_no: number;
+  rev1_gk_id: string | null;
+  rev2_gk_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MatchGoalRecord = {
+  id: string;
+  game_id: string;
+  team: MatchTeam;
+  scorer_id: string;
+  assist_id: string | null;
+  created_by: string;
+  updated_by: string | null;
+  cancelled_by: string | null;
+  created_at: string;
+  updated_at: string;
+  cancelled_at: string | null;
 };

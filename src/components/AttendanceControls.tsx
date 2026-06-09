@@ -41,15 +41,15 @@ export function AttendanceControls({ eventId, currentStatus, compact = false }: 
           <input type="hidden" name="status" value={option.status} />
           <button
             type="submit"
-            className={`inline-flex h-10 w-full items-center justify-center gap-1 rounded-md border font-semibold transition ${
-              compact ? "px-1 text-xs sm:text-sm" : "px-2 text-sm"
+            className={`inline-flex w-full items-center justify-center gap-1 rounded-md border font-semibold transition ${
+              compact ? "h-9 px-1 text-xs" : "h-10 px-2 text-sm"
             } ${
               currentStatus === option.status ? option.className : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
             }`}
             title={ATTENDANCE_LABELS[option.status]}
             aria-label={ATTENDANCE_LABELS[option.status]}
           >
-            {option.icon}
+            <span className={compact ? "[&>svg]:h-3.5 [&>svg]:w-3.5" : ""}>{option.icon}</span>
             <span>{ATTENDANCE_LABELS[option.status]}</span>
           </button>
         </form>

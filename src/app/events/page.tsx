@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { ArrowRight, Plus } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { AttendanceControls } from "@/components/AttendanceControls";
 import { EventTypeBadge } from "@/components/EventTypeBadge";
@@ -96,11 +96,8 @@ export default async function EventsPage({ searchParams }: EventsPageProps) {
                   <div className="min-w-0">
                     <div className="mb-2 flex flex-wrap items-center gap-2">
                       <EventTypeBadge type={event.event_type} />
-                      <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${ATTENDANCE_STYLES[status]}`}>
-                        {ATTENDANCE_LABELS[status]}
-                      </span>
                     </div>
-                    <Link href={`/events/${event.id}`} className="block truncate text-base font-bold text-ink hover:text-primary">
+                    <Link href={`/events/${event.id}`} className="block truncate text-lg font-bold text-ink hover:text-primary">
                       {event.title}
                     </Link>
                     <p className="mt-1 text-sm text-slate-600">
@@ -111,8 +108,21 @@ export default async function EventsPage({ searchParams }: EventsPageProps) {
                       <p className="mt-1 text-xs text-slate-400">{event.seasons.name}</p>
                     ) : null}
                   </div>
+                  <Link
+                    href={`/events/${event.id}`}
+                    className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-bold text-white shadow-sm shadow-emerald-900/10 transition hover:bg-primary-hover"
+                  >
+                    詳細・入力へ
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
                 </div>
-                <div className="mt-3">
+                <div className="mt-4 rounded-md border border-slate-200 bg-slate-50/70 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-slate-500">自分の出欠</span>
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${ATTENDANCE_STYLES[status]}`}>
+                      {ATTENDANCE_LABELS[status]}
+                    </span>
+                  </div>
                   <AttendanceControls eventId={event.id} currentStatus={status} compact />
                 </div>
               </article>

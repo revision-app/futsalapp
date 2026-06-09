@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Pencil, Trophy, Trash2 } from "lucide-react";
+import { ClipboardList, Pencil, Trophy, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { AttendanceControls } from "@/components/AttendanceControls";
 import { EventTypeBadge } from "@/components/EventTypeBadge";
@@ -80,30 +80,75 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
         <Notice error={query?.error} />
       </div>
 
-      <section className="card mb-4 p-4">
-        <h2 className="mb-3 text-sm font-bold text-slate-700">自分の出欠</h2>
-        <AttendanceControls eventId={eventId} currentStatus={myAttendance?.status ?? "pending"} />
-      </section>
-
-      {isMvpEvent && canVoteMvp ? (
-        <Link href={`/mvp/${eventId}`} className="btn-secondary mb-4 w-full">
-          <Trophy className="h-4 w-4" />
-          MVP投票へ
-        </Link>
-      ) : null}
-
-      {isMvpEvent && !canVoteMvp ? (
-        <div className="card mb-4 p-4 text-sm text-slate-600">
-          MVP投票は出席者のみ可能です。
+      <section className="card mb-4 overflow-hidden">
+        <div className="border-b border-slate-200 bg-slate-50/80 px-4 py-3">
+          <h2 className="text-sm font-bold text-slate-800">この活動で入力するもの</h2>
+          <p className="mt-0.5 text-xs text-slate-500">出欠、試合結果、MVP投票はここから入力できます。</p>
         </div>
-      ) : null}
 
-      {isMvpEvent && profile.role === "admin" ? (
-        <Link href={`/mvp/${eventId}/results`} className="btn-secondary mb-4 w-full">
-          <Trophy className="h-4 w-4" />
-          MVP結果を見る
-        </Link>
-      ) : null}
+        <div className="space-y-3 p-4">
+          <div className="rounded-md border border-slate-200 bg-white p-3">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-ink">自分の出欠</h3>
+                <p className="text-xs text-slate-500">参加・欠席・保留を登録します。</p>
+              </div>
+            </div>
+            <AttendanceControls eventId={eventId} currentStatus={myAttendance?.status ?? "pending"} />
+          </div>
+
+          {isMvpEvent ? (
+            <Link
+              href={`/events/${eventId}/matches`}
+              className="flex items-center gap-3 rounded-md border border-slate-200 bg-white p-3 text-left transition hover:border-primary/40 hover:bg-primary-light/30"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-700">
+                <ClipboardList className="h-5 w-5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-bold text-ink">試合結果を記録</span>
+                <span className="block text-xs text-slate-500">セッション編成、ゴール、GKを入力します。</span>
+              </span>
+            </Link>
+          ) : null}
+
+          {isMvpEvent && canVoteMvp ? (
+            <Link
+              href={`/mvp/${eventId}`}
+              className="flex items-center gap-3 rounded-md border border-slate-200 bg-white p-3 text-left transition hover:border-primary/40 hover:bg-primary-light/30"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-light text-primary">
+                <Trophy className="h-5 w-5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-bold text-ink">MVP投票</span>
+                <span className="block text-xs text-slate-500">出席者の中からMVPを選びます。</span>
+              </span>
+            </Link>
+          ) : null}
+
+          {isMvpEvent && !canVoteMvp ? (
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+              MVP投票は出席者のみ可能です。
+            </div>
+          ) : null}
+
+          {isMvpEvent && profile.role === "admin" ? (
+            <Link
+              href={`/mvp/${eventId}/results`}
+              className="flex items-center gap-3 rounded-md border border-slate-200 bg-white p-3 text-left transition hover:border-primary/40 hover:bg-primary-light/30"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-700">
+                <Trophy className="h-5 w-5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-bold text-ink">MVP結果を見る</span>
+                <span className="block text-xs text-slate-500">管理者用の集計結果を確認します。</span>
+              </span>
+            </Link>
+          ) : null}
+        </div>
+      </section>
 
       <section className="space-y-3">
         {ATTENDANCE_STATUS_OPTIONS.map((status) => (

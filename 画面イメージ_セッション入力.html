@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>画面イメージ｜試合結果記録機能</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#F5F4F0;font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans',sans-serif;padding:40px 20px;color:#1a1a1a}
+h1{font-size:15px;font-weight:500;color:#888;margin-bottom:32px;letter-spacing:.05em}
+
+.section{margin-bottom:56px}
+.section-label{font-size:11px;font-weight:500;letter-spacing:.08em;color:#aaa;text-transform:uppercase;margin-bottom:16px}
+
+.phones{display:flex;gap:32px;flex-wrap:wrap;align-items:flex-start}
+.phone-wrap{display:flex;flex-direction:column;align-items:center;gap:10px}
+.phone-caption{font-size:12px;color:#888;font-weight:500}
+
+/* 共通スマホフレーム */
+.phone{width:320px;border:1.5px solid #D0CEC8;border-radius:28px;overflow:hidden;background:#F5F4F0;position:relative;box-shadow:0 4px 24px rgba(0,0,0,0.08)}
+.sb{background:#fff;padding:10px 16px 6px;display:flex;justify-content:space-between;align-items:center;border-bottom:0.5px solid #E8E6E0}
+.sb-t{font-size:13px;font-weight:500;color:#1a1a1a}
+.conn{display:flex;align-items:center;gap:4px;font-size:11px;color:#16a34a}
+.conn-dot{width:7px;height:7px;border-radius:50%;background:#16a34a}
+.tabs{display:flex;background:#fff;border-bottom:0.5px solid #E8E6E0}
+.tab{flex:1;padding:10px 4px;text-align:center;font-size:12px;color:#999;border:none;background:transparent}
+.tab.active{color:#1a1a1a;font-weight:500;border-bottom:2px solid #1a1a1a}
+.scr{background:#F5F4F0;padding:12px;min-height:460px}
+
+/* チームカラー */
+.o-bg{background:#FEF3E2}.o-bd{border-color:#F59E0B!important}.o-tx{color:#92400E}
+.r-bg{background:#FEE2E2}.r-bd{border-color:#EF4444!important}.r-tx{color:#991B1B}
+
+/* 編成タブ */
+.note{font-size:11px;color:#aaa;margin-bottom:10px;padding:0 2px}
+.col-headers{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px}
+.col-head{text-align:center;font-size:12px;font-weight:500;padding:5px 0;border-radius:8px}
+.count-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.count-badge{text-align:center;font-size:11px;padding:3px 0;border-radius:8px;background:#ECEAE4;color:#666}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.col{display:flex;flex-direction:column;gap:5px}
+.chip{border-radius:8px;border:0.5px solid;padding:9px 10px;display:flex;align-items:center;gap:6px;font-size:13px;color:#1a1a1a}
+.chip .pn{font-size:10px;color:#aaa;width:14px;flex-shrink:0}
+.chip.una{border-style:dashed;background:#ECEAE4;border-color:#C8C6C0}
+.chip-hint{font-size:10px;color:#bbb;margin-left:auto}
+.una-sec{margin-bottom:10px}
+.una-label{font-size:11px;color:#888;margin-bottom:6px;padding:0 2px}
+.una-list{display:flex;flex-direction:column;gap:5px}
+
+/* ライブ入力タブ */
+.mc{background:#fff;border-radius:12px;border:0.5px solid #E8E6E0;padding:12px;margin-bottom:10px}
+.mt{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.msel{flex:1;font-size:13px;font-weight:500;padding:6px 10px;border-radius:8px;border:0.5px solid #D0CEC8;background:#F5F4F0;color:#1a1a1a}
+.madd{font-size:12px;color:#2563EB;border:0.5px solid #D0CEC8;border-radius:8px;padding:6px 10px;background:transparent;white-space:nowrap}
+.srow{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.tb{flex:1;text-align:center}
+.tn{font-size:11px;font-weight:500;margin-bottom:4px}
+.snum{font-size:28px;font-weight:600;color:#1a1a1a;border-bottom:1.5px solid #D0CEC8;padding-bottom:2px;display:block;text-align:center}
+.vs{font-size:13px;color:#bbb;font-weight:500;flex-shrink:0}
+.gkrow{display:flex;gap:8px}
+.gktag{flex:1;font-size:11px;color:#666;background:#F5F4F0;border-radius:8px;padding:4px 6px;text-align:center;border:0.5px solid #E8E6E0}
+.gba{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.gb{border-radius:12px;border:1px solid;padding:14px 8px;text-align:center}
+.gb-l{font-size:11px;font-weight:500;margin-bottom:4px}
+.gb-m{font-size:14px;font-weight:500;display:flex;align-items:center;justify-content:center;gap:4px}
+.fh{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding:0 2px}
+.fl{font-size:11px;color:#888}
+.fc{font-size:11px;color:#bbb}
+.feed{display:flex;flex-direction:column;gap:6px}
+.fi{border-radius:8px;padding:10px;display:flex;align-items:flex-start;gap:8px;border-left:3px solid}
+.fi.o{background:#FEF3E2;border-left-color:#F59E0B}
+.fi.r{background:#FEE2E2;border-left-color:#EF4444}
+.fi-ic{font-size:15px;flex-shrink:0;margin-top:1px}
+.fi.o .fi-ic{color:#92400E}
+.fi.r .fi-ic{color:#991B1B}
+.fi-bd{flex:1}
+.fi-sc{font-size:13px;font-weight:500;color:#1a1a1a;margin-bottom:2px}
+.fi-sc span{font-size:11px;font-weight:400;color:#888;margin-left:4px}
+.fi-as{font-size:12px;font-weight:500;color:#1a1a1a}
+.fi-al{font-size:11px;color:#888}
+.fi-na{font-size:11px;color:#bbb}
+.fi-ac{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0}
+.fi-tm{font-size:10px;color:#bbb}
+.fi-bs{display:flex;gap:4px}
+.fi-b{font-size:10px;color:#666;border:0.5px solid #D0CEC8;border-radius:4px;background:#fff;padding:2px 7px}
+.feed-empty{font-size:12px;color:#bbb;text-align:center;padding:20px 0}
+
+/* スタッツタブ */
+.sn{font-size:11px;color:#bbb;margin-bottom:8px}
+.sumcard{background:#fff;border-radius:8px;border:0.5px solid #E8E6E0;padding:9px 10px;margin-bottom:12px}
+.sumrow{display:flex;justify-content:space-between;font-size:12px;padding:2px 0}
+.suml{color:#888}
+.sumv{font-weight:500;color:#1a1a1a}
+.sdiv{border:none;border-top:0.5px solid #E8E6E0;margin:5px 0}
+.ts{margin-bottom:14px}
+.th{margin-bottom:7px}
+.tbg{font-size:11px;font-weight:500;padding:2px 10px;border-radius:8px;border:1px solid;display:inline-block}
+.pk{background:#fff;border-radius:8px;border:0.5px solid #E8E6E0;padding:10px 12px;margin-bottom:6px}
+.pk-t{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.pk-n{font-size:11px;color:#bbb;width:14px}
+.pk-m{font-size:13px;font-weight:500;color:#1a1a1a;flex:1}
+.stsr{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px}
+.stc{display:flex;flex-direction:column;align-items:center;gap:2px}
+.stl{font-size:9px;color:#bbb}
+.stv{font-size:16px;font-weight:500;color:#888}
+
+/* ポップアップ */
+.pop-wrap{position:relative;min-height:460px}
+.pop-bg{background:#F5F4F0;padding:12px;filter:brightness(0.55);min-height:460px}
+.pop{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:12px;border:0.5px solid #D0CEC8;width:272px;box-shadow:0 8px 32px rgba(0,0,0,0.15);z-index:10}
+.pop-h{padding:12px 14px 10px;border-bottom:0.5px solid #E8E6E0;display:flex;justify-content:space-between;align-items:center}
+.pop-t{font-size:14px;font-weight:500}
+.pop-x{font-size:18px;color:#bbb;background:none;border:none}
+.pop-b{padding:14px}
+.ff{margin-bottom:12px}
+.ff-l{font-size:11px;color:#888;margin-bottom:5px}
+.ff-s{width:100%;padding:8px 10px;border-radius:8px;border:0.5px solid #D0CEC8;background:#F5F4F0;color:#1a1a1a;font-size:13px}
+.pop-f{padding:0 14px 14px;display:flex;gap:8px}
+.bc{flex:1;padding:10px;border-radius:8px;border:0.5px solid #D0CEC8;background:transparent;font-size:13px;color:#888}
+.bk{flex:2;padding:10px;border-radius:8px;border:none;font-size:13px;font-weight:500;color:#fff}
+
+/* ボトムバー */
+.bb{background:#fff;border-top:0.5px solid #E8E6E0;padding:10px 12px}
+.bbt{width:100%;padding:11px;border-radius:12px;border:0.5px solid #D0CEC8;background:#fff;font-size:13px;font-weight:500;color:#1a1a1a;text-align:center}
+.an{font-size:10px;color:#bbb;text-align:center;margin-top:5px}
+
+/* 凡例 */
+.legend{background:#fff;border-radius:12px;padding:20px 24px;max-width:700px;margin-top:0}
+.legend h3{font-size:12px;font-weight:500;color:#888;margin-bottom:12px;letter-spacing:.05em}
+.legend-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+.legend-item{font-size:12px;color:#555;padding:6px 10px;background:#F5F4F0;border-radius:6px;line-height:1.5}
+.legend-item strong{color:#1a1a1a;font-weight:500}
+</style>
+</head>
+<body>
+
+<h1>画面イメージ｜試合結果記録機能</h1>
+
+<!-- 編成タブ -->
+<div class="section">
+<div class="section-label">1. 編成タブ — チーム振り分け</div>
+<div class="phones">
+
+<div class="phone-wrap">
+<div class="phone-caption">初期状態（全員未振り分け）</div>
+<div class="phone">
+  <div class="sb"><span class="sb-t">12/9 その1</span><span class="conn"><span class="conn-dot"></span>同期中 8人</span></div>
+  <div class="tabs"><div class="tab active">編成</div><div class="tab">ライブ入力</div><div class="tab">スタッツ</div></div>
+  <div class="scr">
+    <p class="note">左スワイプ → REV1 ／ 右スワイプ → REV2 ／ タップで戻す</p>
+    <div class="col-headers"><div class="col-head o-bg o-tx">REV1</div><div class="col-head r-bg r-tx">REV2</div></div>
+    <div class="count-row"><div class="count-badge">0人</div><div class="count-badge">0人</div></div>
+    <div class="cols"><div class="col"></div><div class="col"></div></div>
+    <div class="una-sec">
+      <div class="una-label">未振り分け（左右にスワイプ）</div>
+      <div class="una-list">
+        <div class="chip una"><span class="pn">1</span>野崎<span class="chip-hint">← →</span></div>
+        <div class="chip una"><span class="pn">2</span>池内<span class="chip-hint">← →</span></div>
+        <div class="chip una"><span class="pn">3</span>衛藤<span class="chip-hint">← →</span></div>
+        <div class="chip una"><span class="pn">5</span>鈴木<span class="chip-hint">← →</span></div>
+        <div class="chip una"><span class="pn">9</span>塩屋<span class="chip-hint">← →</span></div>
+        <div class="chip una"><span class="pn">11</span>倉田<span class="chip-hint">← →</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="bb"><div class="bbt">この編成でセッション開始</div></div>
+</div>
+</div>
+
+<div class="phone-wrap">
+<div class="phone-caption">振り分け後（スワイプ完了）</div>
+<div class="phone">
+  <div class="sb"><span class="sb-t">12/9 その1</span><span class="conn"><span class="conn-dot"></span>同期中 8人</span></div>
+  <div class="tabs"><div class="tab active">編成</div><div class="tab">ライブ入力</div><div class="tab">スタッツ</div></div>
+  <div class="scr">
+    <p class="note">左スワイプ → REV1 ／ 右スワイプ → REV2 ／ タップで戻す</p>
+    <div class="col-headers"><div class="col-head o-bg o-tx">REV1</div><div class="col-head r-bg r-tx">REV2</div></div>
+    <div class="count-row"><div class="count-badge">3人</div><div class="count-badge">3人</div></div>
+    <div class="cols">
+      <div class="col">
+        <div class="chip o-bg o-bd"><span class="pn">1</span>野崎</div>
+        <div class="chip o-bg o-bd"><span class="pn">2</span>池内</div>
+        <div class="chip o-bg o-bd"><span class="pn">3</span>衛藤</div>
+      </div>
+      <div class="col">
+        <div class="chip r-bg r-bd"><span class="pn">5</span>鈴木</div>
+        <div class="chip r-bg r-bd"><span class="pn">9</span>塩屋</div>
+        <div class="chip r-bg r-bd"><span class="pn">11</span>倉田</div>
+      </div>
+    </div>
+    <div class="una-sec">
+      <div class="una-label">未振り分け</div>
+      <div class="una-list" style="color:#bbb;font-size:12px;padding:8px 2px">全員振り分け済み</div>
+    </div>
+  </div>
+  <div class="bb"><div class="bbt">この編成でセッション開始</div></div>
+</div>
+</div>
+
+</div>
+</div>
+
+<!-- ライブ入力タブ -->
+<div class="section">
+<div class="section-label">2. ライブ入力タブ — 試合進行中</div>
+<div class="phones">
+
+<div class="phone-wrap">
+<div class="phone-caption">通常状態（第3試合選択中）</div>
+<div class="phone">
+  <div class="sb"><span class="sb-t">12/9 その1</span><span class="conn"><span class="conn-dot"></span>同期中 8人</span></div>
+  <div class="tabs"><div class="tab">編成</div><div class="tab active">ライブ入力</div><div class="tab">スタッツ</div></div>
+  <div class="scr">
+    <div class="mc">
+      <div class="mt">
+        <select class="msel"><option>第3試合　2 - 1</option></select>
+        <span class="madd">＋ 追加</span>
+      </div>
+      <div class="srow">
+        <div class="tb"><div class="tn o-tx">REV1</div><span class="snum">2</span></div>
+        <span class="vs">対</span>
+        <div class="tb"><div class="tn r-tx">REV2</div><span class="snum">1</span></div>
+      </div>
+      <div class="gkrow">
+        <div class="gktag">GK: 野崎</div>
+        <div class="gktag">GK: 倉田</div>
+      </div>
+    </div>
+    <div class="gba">
+      <div class="gb o-bg o-bd"><div class="gb-l o-tx">REV1 ゴール</div><div class="gb-m o-tx">＋ 記録する</div></div>
+      <div class="gb r-bg r-bd"><div class="gb-l r-tx">REV2 ゴール</div><div class="gb-m r-tx">＋ 記録する</div></div>
+    </div>
+    <div class="fh"><span class="fl">第3試合の記録</span><span class="fc">2件</span></div>
+    <div class="feed">
+      <div class="fi o">
+        <span class="fi-ic">✓</span>
+        <div class="fi-bd">
+          <div class="fi-sc">池内<span>ゴール</span></div>
+          <div><span class="fi-al">アシスト　</span><span class="fi-as">衛藤</span></div>
+        </div>
+        <div class="fi-ac"><span class="fi-tm">いま</span><div class="fi-bs"><span class="fi-b">修正</span><span class="fi-b">取消</span></div></div>
+      </div>
+      <div class="fi r">
+        <span class="fi-ic">✓</span>
+        <div class="fi-bd">
+          <div class="fi-sc">倉田<span>ゴール</span></div>
+          <div><span class="fi-al">アシスト　</span><span class="fi-as">塩屋</span></div>
+        </div>
+        <div class="fi-ac"><span class="fi-tm">5分前</span><div class="fi-bs"><span class="fi-b">修正</span><span class="fi-b">取消</span></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="bb"><div style="display:none"></div></div>
+</div>
+</div>
+
+<div class="phone-wrap">
+<div class="phone-caption">ゴールボタン押下後（ポップアップ表示）</div>
+<div class="phone">
+  <div class="sb"><span class="sb-t">12/9 その1</span><span class="conn"><span class="conn-dot"></span>同期中 8人</span></div>
+  <div class="tabs"><div class="tab">編成</div><div class="tab active">ライブ入力</div><div class="tab">スタッツ</div></div>
+  <div class="pop-wrap">
+    <div class="pop-bg">
+      <div class="mc" style="opacity:.4">
+        <div class="mt"><select class="msel"><option>第3試合　2 - 1</option></select></div>
+        <div class="srow">
+          <div class="tb"><div class="tn o-tx">REV1</div><span class="snum">2</span></div>
+          <span class="vs">対</span>
+          <div class="tb"><div class="tn r-tx">REV2</div><span class="snum">1</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="pop">
+      <div class="pop-h o-bg">
+        <span class="pop-t o-tx">REV1 ゴールを記録</span>
+        <span class="pop-x">×</span>
+      </div>
+      <div class="pop-b">
+        <div class="ff"><div class="ff-l">ゴール</div><select class="ff-s"><option>野崎</option></select></div>
+        <div class="ff" style="margin-bottom:0"><div class="ff-l">アシスト（任意）</div><select class="ff-s"><option>なし</option></select></div>
+      </div>
+      <div class="pop-f">
+        <div class="bc">キャンセル</div>
+        <div class="bk" style="background:#F59E0B">確定する</div>
+      </div>
+    </div>
+  </div>
+  <div class="bb" style="margin-top:-1px"></div>
+</div>
+</div>
+
+<div class="phone-wrap">
+<div class="phone-caption">ゴールなし試合（第1試合）</div>
+<div class="phone">
+  <div class="sb"><span class="sb-t">12/9 その1</span><span class="conn"><span class="conn-dot"></span>同期中 8人</span></div>
+  <div class="tabs"><div class="tab">編成</div><div class="tab active">ライブ入力</div><div class="tab">スタッツ</div></div>
+  <div class="scr">
+    <div class="mc">
+      <div class="mt">
+        <select class="msel"><option>第1試合　0 - 0</option></select>
+        <span class="madd">＋ 追加</span>
+      </div>
+      <div class="srow">
+        <div class="tb"><div class="tn o-tx">REV1</div><span class="snum">0</span></div>
+        <span class="vs">対</span>
+        <div class="tb"><div class="tn r-tx">REV2</div><span class="snum">0</span></div>
+      </div>
+      <div class="gkrow">
+        <div class="gktag">GK: 池内</div>
+        <div class="gktag">GK: 鈴木</div>
+      </div>
+    </div>
+    <div class="gba">
+      <div class="gb o-bg o-bd"><div class="gb-l o-tx">REV1 ゴール</div><div class="gb-m o-tx">＋ 記録する</div></div>
+      <div class="gb r-bg r-bd"><div class="gb-l r-tx">REV2 ゴール</div><div class="gb-m r-tx">＋ 記録する</div></div>
+    </div>
+    <div class="fh"><span class="fl">第1試合の記録</span><span class="fc">0件</span></div>
+    <div class="feed"><div class="feed-empty">まだ記録がありません</div></div>
+  </div>
+</div>
+</div>
+
+</div>
+</div>
+
+<!-- スタッツタブ -->
+<div class="section">
+<div class="section-label">3. スタッツタブ — セッション集計確認・確定</div>
+<div class="phones">
+
+<div class="phone-wrap">
+<div class="phone-caption">スタッツ一覧（全項目自動算出）</div>
+<div class="phone">
+  <div class="sb"><span class="sb-t">12/9 その1</span><span class="conn"><span class="conn-dot"></span>同期中 8人</span></div>
+  <div class="tabs"><div class="tab">編成</div><div class="tab">ライブ入力</div><div class="tab active">スタッツ</div></div>
+  <div class="scr">
+    <p class="sn">全項目自動算出</p>
+    <div class="sumcard">
+      <div class="sumrow"><span class="suml">試合数</span><span class="sumv">6試合</span></div>
+      <hr class="sdiv">
+      <div class="sumrow"><span class="suml">REV1 合計</span><span class="sumv">3点</span></div>
+      <div class="sumrow"><span class="suml">REV2 合計</span><span class="sumv">8点</span></div>
+    </div>
+    <div class="ts">
+      <div class="th"><span class="tbg o-bg o-tx o-bd">REV1</span></div>
+      <div class="pk">
+        <div class="pk-t"><span class="pk-n">1</span><span class="pk-m">野崎</span></div>
+        <div class="stsr">
+          <div class="stc"><span class="stl">ゴール</span><span class="stv">0</span></div>
+          <div class="stc"><span class="stl">アシスト</span><span class="stv">1</span></div>
+          <div class="stc"><span class="stl">失点</span><span class="stv">2</span></div>
+          <div class="stc"><span class="stl">GK回数</span><span class="stv">2</span></div>
+        </div>
+      </div>
+      <div class="pk">
+        <div class="pk-t"><span class="pk-n">2</span><span class="pk-m">池内</span></div>
+        <div class="stsr">
+          <div class="stc"><span class="stl">ゴール</span><span class="stv">1</span></div>
+          <div class="stc"><span class="stl">アシスト</span><span class="stv">0</span></div>
+          <div class="stc"><span class="stl">失点</span><span class="stv">—</span></div>
+          <div class="stc"><span class="stl">GK回数</span><span class="stv">—</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="ts">
+      <div class="th"><span class="tbg r-bg r-tx r-bd">REV2</span></div>
+      <div class="pk">
+        <div class="pk-t"><span class="pk-n">9</span><span class="pk-m">塩屋</span></div>
+        <div class="stsr">
+          <div class="stc"><span class="stl">ゴール</span><span class="stv">2</span></div>
+          <div class="stc"><span class="stl">アシスト</span><span class="stv">2</span></div>
+          <div class="stc"><span class="stl">失点</span><span class="stv">—</span></div>
+          <div class="stc"><span class="stl">GK回数</span><span class="stv">—</span></div>
+        </div>
+      </div>
+      <div class="pk">
+        <div class="pk-t"><span class="pk-n">11</span><span class="pk-m">倉田</span></div>
+        <div class="stsr">
+          <div class="stc"><span class="stl">ゴール</span><span class="stv">1</span></div>
+          <div class="stc"><span class="stl">アシスト</span><span class="stv">1</span></div>
+          <div class="stc"><span class="stl">失点</span><span class="stv">4</span></div>
+          <div class="stc"><span class="stl">GK回数</span><span class="stv">3</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="bb">
+    <div class="bbt">セッションを確定する</div>
+    <div class="an">管理ユーザーのみ操作できます</div>
+  </div>
+</div>
+</div>
+
+</div>
+</div>
+
+<!-- 凡例 -->
+<div class="section">
+<div class="section-label">補足事項</div>
+<div class="legend">
+  <h3>設計上のポイント</h3>
+  <div class="legend-grid">
+    <div class="legend-item"><strong>REV1カラー</strong>：オレンジ（#F59E0B）</div>
+    <div class="legend-item"><strong>REV2カラー</strong>：赤（#EF4444）</div>
+    <div class="legend-item"><strong>ゴール記録</strong>：1点ごとに1件追加（正の字方式）</div>
+    <div class="legend-item"><strong>リアルタイム</strong>：全員の画面に即時反映</div>
+    <div class="legend-item"><strong>フィード</strong>：選択中の試合のみ表示</div>
+    <div class="legend-item"><strong>スタッツ</strong>：全項目自動算出、手入力なし</div>
+    <div class="legend-item"><strong>確定操作</strong>：管理ユーザーのみ</div>
+    <div class="legend-item"><strong>編成</strong>：セッション内で固定</div>
+  </div>
+</div>
+</div>
+
+</body>
+</html>

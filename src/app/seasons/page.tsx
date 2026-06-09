@@ -49,14 +49,22 @@ export default async function SeasonsPage() {
                 ) : null}
               </div>
               {profile.role === "admin" ? (
-                <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <Link href={`/api/seasons/${season.id}/export/attendance`} className="btn-secondary">
                     <Download className="h-4 w-4" />
                     出欠CSV
                   </Link>
+                  <Link href={`/api/seasons/${season.id}/export/matches`} className="btn-secondary">
+                    <Download className="h-4 w-4" />
+                    試合CSV
+                  </Link>
                   <Link href={`/api/seasons/${season.id}/export/mvp`} className="btn-secondary">
                     <Download className="h-4 w-4" />
                     MVP CSV
+                  </Link>
+                  <Link href={`/api/seasons/${season.id}/export/awards`} className="btn-secondary">
+                    <Download className="h-4 w-4" />
+                    各賞CSV
                   </Link>
                 </div>
               ) : null}
