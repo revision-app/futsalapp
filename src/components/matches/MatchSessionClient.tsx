@@ -100,33 +100,34 @@ export function MatchSessionClient({
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
-    console.log("[Realtime] Supabase URL:", process.env.NEXT_PUBLIC_SUPABASE_URL);
-    supabase.auth.getSession().then(({ data }) => {
-      console.log("[Realtime] auth session:", data.session ? `user=${data.session.user.id}` : "NO SESSION");
-    });
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-    const refreshSoon = (payload: unknown) => {
-      console.log("[Realtime] change received:", payload);
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    const refreshSoon = () => {
       if (refreshTimer) clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => {
-        console.log("[Realtime] calling router.refresh()");
-        router.refresh();
-      }, 150);
+      refreshTimer = setTimeout(() => router.refresh(), 150);
     };
 
-    const channel = supabase
-      .channel(`match-results-${event.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "match_sessions" }, refreshSoon)
-      .on("postgres_changes", { event: "*", schema: "public", table: "match_session_players" }, refreshSoon)
-      .on("postgres_changes", { event: "*", schema: "public", table: "match_games" }, refreshSoon)
-      .on("postgres_changes", { event: "*", schema: "public", table: "match_goal_records" }, refreshSoon)
-      .subscribe((status, err) => {
-        console.log("[Realtime] subscription status:", status, err ?? "");
-      });
+    async function setup() {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        supabase.realtime.setAuth(data.session.access_token);
+      }
+
+      channel = supabase
+        .channel(`match-results-${event.id}`)
+        .on("postgres_changes", { event: "*", schema: "public", table: "match_sessions" }, refreshSoon)
+        .on("postgres_changes", { event: "*", schema: "public", table: "match_session_players" }, refreshSoon)
+        .on("postgres_changes", { event: "*", schema: "public", table: "match_games" }, refreshSoon)
+        .on("postgres_changes", { event: "*", schema: "public", table: "match_goal_records" }, refreshSoon)
+        .subscribe();
+    }
+
+    setup();
 
     return () => {
       if (refreshTimer) clearTimeout(refreshTimer);
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [event.id, router]);
 
