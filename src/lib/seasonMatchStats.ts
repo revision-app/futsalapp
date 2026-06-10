@@ -184,9 +184,10 @@ export async function getSeasonMatchStats(seasonId: string): Promise<SeasonMatch
   for (const session of sessionRows) {
     const sessionPlayers = playersBySession.get(session.id) ?? [];
     const sessionGames = gamesBySession.get(session.id) ?? [];
-    const teamByUserId = new Map(sessionPlayers.map((player) => [player.user_id, player.team]));
+    const memberPlayers = sessionPlayers.filter((player): player is MatchSessionPlayer & { user_id: string } => Boolean(player.user_id));
+    const teamByUserId = new Map(memberPlayers.map((player) => [player.user_id, player.team]));
 
-    for (const player of sessionPlayers) {
+    for (const player of memberPlayers) {
       const row = stats.get(player.user_id);
       if (row) row.games += sessionGames.length;
     }
@@ -194,7 +195,7 @@ export async function getSeasonMatchStats(seasonId: string): Promise<SeasonMatch
     for (const game of sessionGames) {
       const score = scoreForGame(game.id, goalsByGame);
 
-      for (const player of sessionPlayers) {
+      for (const player of memberPlayers) {
         const row = stats.get(player.user_id);
         if (!row) continue;
 
@@ -230,10 +231,12 @@ export async function getSeasonMatchStats(seasonId: string): Promise<SeasonMatch
       }
 
       for (const goal of goalsByGame.get(game.id) ?? []) {
-        const scorer = stats.get(goal.scorer_id);
-        if (scorer && teamByUserId.get(goal.scorer_id) === goal.team) {
-          scorer.goals += 1;
-          scorer.goalGames.add(game.id);
+        if (goal.scorer_id) {
+          const scorer = stats.get(goal.scorer_id);
+          if (scorer && teamByUserId.get(goal.scorer_id) === goal.team) {
+            scorer.goals += 1;
+            scorer.goalGames.add(game.id);
+          }
         }
 
         if (goal.assist_id) {

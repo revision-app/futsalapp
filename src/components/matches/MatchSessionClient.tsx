@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Activity, Ban, BarChart3, Check, CheckCircle2, Pencil, Plus, Users, X } from "lucide-react";
+import { Activity, AlertTriangle, Ban, BarChart3, Check, CheckCircle2, Pencil, Plus, Trash2, Users, X } from "lucide-react";
 import {
   addGoalRecordAction,
   addMatchGameAction,
@@ -10,18 +10,28 @@ import {
   cancelGoalRecordAction,
   confirmMatchSessionAction,
   createMatchSessionAction,
+  deleteMatchGameAction,
+  deleteMatchSessionAction,
   reopenMatchSessionAction,
   updateGoalRecordAction,
   updateMatchGameGkAction,
 } from "@/lib/actions/matches";
 import {
   computeSessionStats,
+  compareParticipants,
   formatRatio,
+  gameGkKey,
   getGameLabel,
   getGameScore,
+  getParticipantDisplayName,
+  getParticipantUniformNo,
+  goalAssistKey,
+  goalScorerKey,
   type MatchPlayer,
+  type MatchParticipant,
+  matchPlayerKey,
+  participantKey,
 } from "@/lib/matchStats";
-import { getProfileDisplayName } from "@/lib/profile";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import type { Event, MatchGame, MatchGoalRecord, MatchSession, MatchTeam, Profile } from "@/lib/types";
 
@@ -32,10 +42,15 @@ type GoalModal =
   | { mode: "edit"; goal: MatchGoalRecord; team: MatchTeam }
   | null;
 
+type DeleteModal =
+  | { kind: "session"; session: MatchSession }
+  | { kind: "game"; game: MatchGame }
+  | null;
+
 type MatchSessionClientProps = {
   event: Event;
   profile: Profile;
-  attendees: Profile[];
+  attendees: MatchParticipant[];
   sessions: MatchSession[];
   selectedSession: MatchSession | null;
   players: MatchPlayer[];
@@ -73,12 +88,8 @@ function eventDateLabel(value: string): string {
   }).format(new Date(value));
 }
 
-function profileSort(a: Profile, b: Profile): number {
-  return (a.uniform_no ?? 9999) - (b.uniform_no ?? 9999) || getProfileDisplayName(a).localeCompare(getProfileDisplayName(b));
-}
-
 function teamPlayers(players: MatchPlayer[], team: MatchTeam): MatchPlayer[] {
-  return players.filter((player) => player.team === team).sort((a, b) => profileSort(a.profile, b.profile));
+  return players.filter((player) => player.team === team).sort((a, b) => compareParticipants(a.participant, b.participant));
 }
 
 export function MatchSessionClient({
@@ -97,6 +108,7 @@ export function MatchSessionClient({
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [selectedGameId, setSelectedGameId] = useState(games[games.length - 1]?.id ?? "");
   const [goalModal, setGoalModal] = useState<GoalModal>(null);
+  const [deleteModal, setDeleteModal] = useState<DeleteModal>(null);
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
@@ -114,8 +126,10 @@ export function MatchSessionClient({
         supabase.realtime.setAuth(data.session.access_token);
       }
 
+      const channelName = `match-results-${event.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       channel = supabase
-        .channel(`match-results-${event.id}`)
+        .channel(channelName)
+        .on("postgres_changes", { event: "*", schema: "public", table: "event_guests" }, refreshSoon)
         .on("postgres_changes", { event: "*", schema: "public", table: "match_sessions" }, refreshSoon)
         .on("postgres_changes", { event: "*", schema: "public", table: "match_session_players" }, refreshSoon)
         .on("postgres_changes", { event: "*", schema: "public", table: "match_games" }, refreshSoon)
@@ -131,8 +145,8 @@ export function MatchSessionClient({
     };
   }, [event.id, router]);
 
-  const playerById = useMemo(() => new Map(players.map((player) => [player.user_id, player.profile])), [players]);
-  const assignmentByUserId = useMemo(() => new Map(players.map((player) => [player.user_id, player.team])), [players]);
+  const playerByKey = useMemo(() => new Map(players.map((player) => [matchPlayerKey(player), player.participant])), [players]);
+  const assignmentByKey = useMemo(() => new Map(players.map((player) => [matchPlayerKey(player), player.team])), [players]);
   const effectiveSelectedGameId = games.some((game) => game.id === selectedGameId)
     ? selectedGameId
     : games[games.length - 1]?.id ?? "";
@@ -146,14 +160,16 @@ export function MatchSessionClient({
   const rev1Players = teamPlayers(players, "rev1");
   const rev2Players = teamPlayers(players, "rev2");
   const unassigned = attendees
-    .filter((user) => !assignmentByUserId.has(user.id))
-    .sort(profileSort);
+    .filter((participant) => !assignmentByKey.has(participantKey(participant)))
+    .sort(compareParticipants);
+  const canUseInputTabs = unassigned.length === 0 && rev1Players.length > 0 && rev2Players.length > 0;
+  const visibleTab = canUseInputTabs ? activeTab : "teams";
   const locked = selectedSession?.status === "confirmed" && profile.role !== "admin";
 
   function switchSession(sessionId: string) {
     const params = new URLSearchParams();
     params.set("session", sessionId);
-    params.set("tab", activeTab);
+    params.set("tab", visibleTab);
     router.push(`/events/${event.id}/matches?${params.toString()}`);
   }
 
@@ -173,10 +189,28 @@ export function MatchSessionClient({
 
       {error ? <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
 
-      <div className="card p-3">
-        <div className="flex gap-2">
+      <div className="rounded-lg border border-primary/25 bg-primary-light/30 p-4 shadow-sm">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase tracking-normal text-primary">Session</p>
+            <h2 className="text-lg font-bold text-ink">
+              {selectedSession ? `セッション${selectedSession.session_no}` : "セッション未作成"}
+            </h2>
+          </div>
+          <span
+            className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${
+              selectedSession?.status === "confirmed"
+                ? "bg-emerald-100 text-emerald-800"
+                : "bg-white text-primary"
+            }`}
+          >
+            {selectedSession?.status === "confirmed" ? "確定済み" : selectedSession ? "試合中" : "未作成"}
+          </span>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
           <select
-            className="form-input"
+            className="form-input bg-white"
             value={selectedSession?.id ?? ""}
             onChange={(event) => switchSession(event.target.value)}
             disabled={sessions.length === 0}
@@ -190,11 +224,20 @@ export function MatchSessionClient({
           </select>
           <form action={createMatchSessionAction}>
             <input type="hidden" name="event_id" value={event.id} />
-            <button type="submit" className="btn-secondary h-full whitespace-nowrap">
+            <button type="submit" className="btn-secondary h-full w-full whitespace-nowrap bg-white">
               <Plus className="h-4 w-4" />
               セッション追加
             </button>
           </form>
+          <button
+            type="button"
+            className="btn-danger h-full w-full whitespace-nowrap"
+            disabled={!selectedSession || locked}
+            onClick={() => selectedSession && setDeleteModal({ kind: "session", session: selectedSession })}
+          >
+            <Trash2 className="h-4 w-4" />
+            削除
+          </button>
         </div>
       </div>
 
@@ -212,9 +255,21 @@ export function MatchSessionClient({
       ) : (
         <>
           <div className="grid grid-cols-3 rounded-lg border border-slate-200 bg-white p-1">
-            <TabButton active={activeTab === "teams"} onClick={() => setActiveTab("teams")} icon={<Users className="h-4 w-4" />} label="編成" />
-            <TabButton active={activeTab === "live"} onClick={() => setActiveTab("live")} icon={<Activity className="h-4 w-4" />} label="ライブ" />
-            <TabButton active={activeTab === "stats"} onClick={() => setActiveTab("stats")} icon={<BarChart3 className="h-4 w-4" />} label="スタッツ" />
+            <TabButton active={visibleTab === "teams"} onClick={() => setActiveTab("teams")} icon={<Users className="h-4 w-4" />} label="編成" />
+            <TabButton
+              active={visibleTab === "live"}
+              onClick={() => setActiveTab("live")}
+              icon={<Activity className="h-4 w-4" />}
+              label="ライブ"
+              disabled={!canUseInputTabs}
+            />
+            <TabButton
+              active={visibleTab === "stats"}
+              onClick={() => setActiveTab("stats")}
+              icon={<BarChart3 className="h-4 w-4" />}
+              label="スタッツ"
+              disabled={!canUseInputTabs}
+            />
           </div>
 
           {selectedSession.status === "confirmed" ? (
@@ -223,7 +278,7 @@ export function MatchSessionClient({
             </div>
           ) : null}
 
-          {activeTab === "teams" ? (
+          {visibleTab === "teams" ? (
             <TeamsTab
               attendees={attendees}
               rev1Players={rev1Players}
@@ -231,11 +286,10 @@ export function MatchSessionClient({
               unassigned={unassigned}
               sessionId={selectedSession.id}
               locked={locked}
-              onStart={() => setActiveTab("live")}
             />
           ) : null}
 
-          {activeTab === "live" ? (
+          {visibleTab === "live" ? (
             <LiveTab
               session={selectedSession}
               games={games}
@@ -244,15 +298,16 @@ export function MatchSessionClient({
               selectedGameGoals={selectedGameGoals}
               rev1Players={rev1Players}
               rev2Players={rev2Players}
-              playerById={playerById}
+              playerByKey={playerByKey}
               locked={locked}
               selectedGameId={effectiveSelectedGameId}
               onGameChange={setSelectedGameId}
               onGoalModal={setGoalModal}
+              onDeleteGame={(game) => setDeleteModal({ kind: "game", game })}
             />
           ) : null}
 
-          {activeTab === "stats" ? (
+          {visibleTab === "stats" ? (
             <StatsTab
               session={selectedSession}
               games={games}
@@ -268,7 +323,7 @@ export function MatchSessionClient({
               modal={goalModal}
               game={selectedGame}
               players={goalModal.team === "rev1" ? rev1Players : rev2Players}
-              playerById={playerById}
+              playerByKey={playerByKey}
               onClose={() => setGoalModal(null)}
               onSaved={() => {
                 setGoalModal(null);
@@ -281,6 +336,10 @@ export function MatchSessionClient({
               locked={locked}
             />
           ) : null}
+
+          {deleteModal ? (
+            <DeleteConfirmDialog modal={deleteModal} onClose={() => setDeleteModal(null)} />
+          ) : null}
         </>
       )}
     </div>
@@ -292,18 +351,25 @@ function TabButton({
   onClick,
   icon,
   label,
+  disabled = false,
 }: {
   active: boolean;
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={`flex h-10 items-center justify-center gap-1.5 rounded-md text-sm font-semibold transition ${
-        active ? "bg-primary text-white" : "text-slate-500 hover:bg-slate-50 hover:text-primary"
+        active
+          ? "bg-primary text-white"
+          : disabled
+            ? "cursor-not-allowed text-slate-300"
+            : "text-slate-500 hover:bg-slate-50 hover:text-primary"
       }`}
     >
       {icon}
@@ -319,15 +385,13 @@ function TeamsTab({
   unassigned,
   sessionId,
   locked,
-  onStart,
 }: {
-  attendees: Profile[];
+  attendees: MatchParticipant[];
   rev1Players: MatchPlayer[];
   rev2Players: MatchPlayer[];
-  unassigned: Profile[];
+  unassigned: MatchParticipant[];
   sessionId: string;
   locked: boolean;
-  onStart: () => void;
 }) {
   return (
     <section className="space-y-3">
@@ -347,15 +411,15 @@ function TeamsTab({
           {unassigned.length === 0 ? (
             <div className="rounded-md bg-slate-50 px-3 py-4 text-center text-sm text-slate-400">全員振り分け済み</div>
           ) : (
-            unassigned.map((user) => (
-              <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-2" key={user.id}>
+            unassigned.map((participant) => (
+              <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-2" key={participantKey(participant)}>
                 <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink">
-                  <span className="w-8 text-xs text-slate-400">{user.uniform_no ?? "-"}</span>
-                  <span>{getProfileDisplayName(user)}</span>
+                  <span className="w-8 text-xs text-slate-400">{getParticipantUniformNo(participant) ?? "-"}</span>
+                  <span>{getParticipantDisplayName(participant)}</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <AssignButton sessionId={sessionId} userId={user.id} team="rev1" disabled={locked} />
-                  <AssignButton sessionId={sessionId} userId={user.id} team="rev2" disabled={locked} />
+                  <AssignButton sessionId={sessionId} participant={participant} team="rev1" disabled={locked} />
+                  <AssignButton sessionId={sessionId} participant={participant} team="rev2" disabled={locked} />
                 </div>
               </div>
             ))
@@ -363,15 +427,6 @@ function TeamsTab({
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={onStart}
-        className="btn-primary w-full"
-        disabled={rev1Players.length === 0 || rev2Players.length === 0}
-      >
-        <CheckCircle2 className="h-4 w-4" />
-        この編成でライブ入力へ
-      </button>
     </section>
   );
 }
@@ -395,17 +450,18 @@ function TeamColumn({
           <div className="px-2 py-6 text-center text-xs text-slate-400">未設定</div>
         ) : (
           players.map((player) => (
-            <form action={assignSessionPlayerAction} key={player.user_id}>
+            <form action={assignSessionPlayerAction} key={matchPlayerKey(player)}>
               <input type="hidden" name="session_id" value={sessionId} />
-              <input type="hidden" name="user_id" value={player.user_id} />
+              <input type="hidden" name="participant_kind" value={player.participant.kind} />
+              <input type="hidden" name="participant_id" value={player.participant.id} />
               <input type="hidden" name="team" value="" />
               <button
                 type="submit"
                 disabled={locked}
                 className={`flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left text-sm font-semibold ${TEAM_STYLES[team].button} disabled:opacity-70`}
               >
-                <span className="w-7 text-xs opacity-70">{player.profile.uniform_no ?? "-"}</span>
-                <span className="min-w-0 truncate">{getProfileDisplayName(player.profile)}</span>
+                <span className="w-7 text-xs opacity-70">{getParticipantUniformNo(player.participant) ?? "-"}</span>
+                <span className="min-w-0 truncate">{getParticipantDisplayName(player.participant)}</span>
               </button>
             </form>
           ))
@@ -417,19 +473,20 @@ function TeamColumn({
 
 function AssignButton({
   sessionId,
-  userId,
+  participant,
   team,
   disabled,
 }: {
   sessionId: string;
-  userId: string;
+  participant: MatchParticipant;
   team: MatchTeam;
   disabled: boolean;
 }) {
   return (
     <form action={assignSessionPlayerAction}>
       <input type="hidden" name="session_id" value={sessionId} />
-      <input type="hidden" name="user_id" value={userId} />
+      <input type="hidden" name="participant_kind" value={participant.kind} />
+      <input type="hidden" name="participant_id" value={participant.id} />
       <input type="hidden" name="team" value={team} />
       <button type="submit" className={`w-full rounded-md border px-2 py-1.5 text-xs font-bold ${TEAM_STYLES[team].button}`} disabled={disabled}>
         {TEAM_LABELS[team]}
@@ -446,11 +503,12 @@ function LiveTab({
   selectedGameGoals,
   rev1Players,
   rev2Players,
-  playerById,
+  playerByKey,
   locked,
   selectedGameId,
   onGameChange,
   onGoalModal,
+  onDeleteGame,
 }: {
   session: MatchSession;
   games: MatchGame[];
@@ -459,13 +517,15 @@ function LiveTab({
   selectedGameGoals: MatchGoalRecord[];
   rev1Players: MatchPlayer[];
   rev2Players: MatchPlayer[];
-  playerById: Map<string, Profile>;
+  playerByKey: Map<string, MatchParticipant>;
   locked: boolean;
   selectedGameId: string;
   onGameChange: (gameId: string) => void;
   onGoalModal: (modal: GoalModal) => void;
+  onDeleteGame: (game: MatchGame) => void;
 }) {
   const score = selectedGame ? getGameScore(selectedGame, goals) : null;
+  const goalInputDisabled = !selectedGame || !gameGkKey(selectedGame, "rev1") || !gameGkKey(selectedGame, "rev2") || locked;
 
   return (
     <section className="space-y-3">
@@ -486,6 +546,15 @@ function LiveTab({
               試合追加
             </button>
           </form>
+          <button
+            type="button"
+            className="btn-danger h-full whitespace-nowrap"
+            disabled={!selectedGame || locked}
+            onClick={() => selectedGame && onDeleteGame(selectedGame)}
+          >
+            <Trash2 className="h-4 w-4" />
+            削除
+          </button>
         </div>
 
         {selectedGame && score ? (
@@ -497,19 +566,19 @@ function LiveTab({
             </div>
             <div className="grid grid-cols-2 gap-2">
               <GkSelect
-                key={`${selectedGame.id}-rev1-${selectedGame.rev1_gk_id ?? "none"}`}
+                key={`${selectedGame.id}-rev1-${gameGkKey(selectedGame, "rev1") ?? "none"}`}
                 gameId={selectedGame.id}
                 team="rev1"
                 players={rev1Players}
-                defaultValue={selectedGame.rev1_gk_id ?? ""}
+                defaultValue={gameGkKey(selectedGame, "rev1") ?? ""}
                 locked={locked}
               />
               <GkSelect
-                key={`${selectedGame.id}-rev2-${selectedGame.rev2_gk_id ?? "none"}`}
+                key={`${selectedGame.id}-rev2-${gameGkKey(selectedGame, "rev2") ?? "none"}`}
                 gameId={selectedGame.id}
                 team="rev2"
                 players={rev2Players}
-                defaultValue={selectedGame.rev2_gk_id ?? ""}
+                defaultValue={gameGkKey(selectedGame, "rev2") ?? ""}
                 locked={locked}
               />
             </div>
@@ -523,9 +592,14 @@ function LiveTab({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <GoalButton team="rev1" disabled={!selectedGame || rev1Players.length === 0 || locked} onClick={() => onGoalModal({ mode: "add", team: "rev1" })} />
-        <GoalButton team="rev2" disabled={!selectedGame || rev2Players.length === 0 || locked} onClick={() => onGoalModal({ mode: "add", team: "rev2" })} />
+        <GoalButton team="rev1" disabled={goalInputDisabled || rev1Players.length === 0} onClick={() => onGoalModal({ mode: "add", team: "rev1" })} />
+        <GoalButton team="rev2" disabled={goalInputDisabled || rev2Players.length === 0} onClick={() => onGoalModal({ mode: "add", team: "rev2" })} />
       </div>
+      {selectedGame && !locked && goalInputDisabled ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          ゴール入力は両チームのGKを設定してから行えます。
+        </div>
+      ) : null}
 
       <div className="card p-3">
         <div className="mb-2 flex items-center justify-between">
@@ -539,8 +613,8 @@ function LiveTab({
             selectedGameGoals.map((goal) => (
               <GoalFeedItem
                 goal={goal}
-                scorer={playerById.get(goal.scorer_id)}
-                assist={goal.assist_id ? playerById.get(goal.assist_id) : null}
+                scorer={playerByKey.get(goalScorerKey(goal))}
+                assist={goalAssistKey(goal) ? playerByKey.get(goalAssistKey(goal) ?? "") : null}
                 locked={locked}
                 onEdit={() => onGoalModal({ mode: "edit", goal, team: goal.team })}
                 key={goal.id}
@@ -581,7 +655,7 @@ function GkSelect({
       <input type="hidden" name="team" value={team} />
       <span className={`mb-1 block text-xs font-bold ${TEAM_STYLES[team].text}`}>{TEAM_LABELS[team]} GK</span>
       <select
-        name="gk_id"
+        name="gk_key"
         defaultValue={defaultValue}
         className="form-input"
         disabled={locked}
@@ -589,9 +663,9 @@ function GkSelect({
       >
         <option value="">未設定</option>
         {players.map((player) => (
-          <option value={player.user_id} key={player.user_id}>
-            {player.profile.uniform_no ? `${player.profile.uniform_no} ` : ""}
-            {getProfileDisplayName(player.profile)}
+          <option value={matchPlayerKey(player)} key={matchPlayerKey(player)}>
+            {getParticipantUniformNo(player.participant) ? `${getParticipantUniformNo(player.participant)} ` : ""}
+            {getParticipantDisplayName(player.participant)}
           </option>
         ))}
       </select>
@@ -632,8 +706,8 @@ function GoalFeedItem({
   onEdit,
 }: {
   goal: MatchGoalRecord;
-  scorer?: Profile;
-  assist: Profile | null | undefined;
+  scorer?: MatchParticipant;
+  assist: MatchParticipant | null | undefined;
   locked: boolean;
   onEdit: () => void;
 }) {
@@ -644,12 +718,12 @@ function GoalFeedItem({
         <Check className={`mt-0.5 h-4 w-4 shrink-0 ${TEAM_STYLES[goal.team].text}`} />
         <div className="min-w-0 flex-1">
           <div className="text-sm font-bold text-ink">
-            {scorer ? getProfileDisplayName(scorer) : "不明な選手"}
+            {scorer ? getParticipantDisplayName(scorer) : "不明な選手"}
             <span className="ml-2 text-xs font-medium text-slate-500">ゴール</span>
           </div>
           <div className="text-sm text-slate-700">
             <span className="text-xs text-slate-500">アシスト </span>
-            <span className="font-semibold">{assist ? getProfileDisplayName(assist) : "なし"}</span>
+            <span className="font-semibold">{assist ? getParticipantDisplayName(assist) : "なし"}</span>
           </div>
           {cancelled ? <div className="mt-1 text-xs font-semibold text-rose-600">取消済み</div> : null}
         </div>
@@ -685,7 +759,7 @@ function GoalDialog({
   modal,
   game,
   players,
-  playerById,
+  playerByKey,
   onClose,
   onSaved,
   locked,
@@ -693,15 +767,15 @@ function GoalDialog({
   modal: Exclude<GoalModal, null>;
   game: MatchGame;
   players: MatchPlayer[];
-  playerById: Map<string, Profile>;
+  playerByKey: Map<string, MatchParticipant>;
   onClose: () => void;
   onSaved: () => void;
   locked: boolean;
 }) {
   const isEdit = modal.mode === "edit";
   const team = modal.team;
-  const defaultScorer = isEdit ? modal.goal.scorer_id : players[0]?.user_id ?? "";
-  const defaultAssist = isEdit ? modal.goal.assist_id ?? "" : "";
+  const defaultScorer = isEdit ? goalScorerKey(modal.goal) : players[0] ? matchPlayerKey(players[0]) : "";
+  const defaultAssist = isEdit ? goalAssistKey(modal.goal) ?? "" : "";
   const action = isEdit ? updateGoalRecordAction : addGoalRecordAction;
 
   return (
@@ -731,30 +805,30 @@ function GoalDialog({
           ) : null}
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-slate-500">ゴール</span>
-            <select name="scorer_id" defaultValue={defaultScorer} className="form-input" required disabled={locked}>
+            <select name="scorer_key" defaultValue={defaultScorer} className="form-input" required disabled={locked}>
               {players.map((player) => (
-                <option value={player.user_id} key={player.user_id}>
-                  {player.profile.uniform_no ? `${player.profile.uniform_no} ` : ""}
-                  {getProfileDisplayName(player.profile)}
+                <option value={matchPlayerKey(player)} key={matchPlayerKey(player)}>
+                  {getParticipantUniformNo(player.participant) ? `${getParticipantUniformNo(player.participant)} ` : ""}
+                  {getParticipantDisplayName(player.participant)}
                 </option>
               ))}
             </select>
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-slate-500">アシスト</span>
-            <select name="assist_id" defaultValue={defaultAssist} className="form-input" disabled={locked}>
+            <select name="assist_key" defaultValue={defaultAssist} className="form-input" disabled={locked}>
               <option value="">なし</option>
               {players.map((player) => (
-                <option value={player.user_id} key={player.user_id}>
-                  {player.profile.uniform_no ? `${player.profile.uniform_no} ` : ""}
-                  {getProfileDisplayName(player.profile)}
+                <option value={matchPlayerKey(player)} key={matchPlayerKey(player)}>
+                  {getParticipantUniformNo(player.participant) ? `${getParticipantUniformNo(player.participant)} ` : ""}
+                  {getParticipantDisplayName(player.participant)}
                 </option>
               ))}
             </select>
           </label>
           {isEdit ? (
             <p className="text-xs text-slate-500">
-              現在: {getProfileDisplayName(playerById.get(modal.goal.scorer_id) ?? players[0]?.profile)}
+              現在: {playerByKey.get(goalScorerKey(modal.goal)) ? getParticipantDisplayName(playerByKey.get(goalScorerKey(modal.goal))!) : "不明な選手"}
             </p>
           ) : null}
           <div className="grid grid-cols-[1fr_2fr] gap-2 pt-1">
@@ -767,6 +841,57 @@ function GoalDialog({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function DeleteConfirmDialog({
+  modal,
+  onClose,
+}: {
+  modal: Exclude<DeleteModal, null>;
+  onClose: () => void;
+}) {
+  const isSession = modal.kind === "session";
+  const action = isSession ? deleteMatchSessionAction : deleteMatchGameAction;
+  const title = isSession ? `セッション${modal.session.session_no}を削除` : `第${modal.game.game_no}試合を削除`;
+  const description = isSession
+    ? "このセッションの編成、試合、ゴール、アシスト、GK記録がすべて削除されます。"
+    : "この試合のゴール、アシスト、GK記録が削除されます。";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4">
+      <div className="w-full max-w-sm rounded-lg border border-rose-200 bg-white shadow-xl">
+        <div className="flex items-start gap-3 border-b border-rose-100 bg-rose-50 px-4 py-3">
+          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-rose-600">
+            <AlertTriangle className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-rose-900">{title}</h2>
+            <p className="mt-1 text-xs text-rose-700">本当に削除してよいですか？</p>
+          </div>
+          <button type="button" onClick={onClose} className="ml-auto rounded p-1 text-rose-400 hover:bg-white/70 hover:text-rose-700">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="space-y-3 p-4">
+          <p className="text-sm text-slate-600">{description}</p>
+          <form action={action} className="grid grid-cols-[1fr_2fr] gap-2">
+            {isSession ? (
+              <input type="hidden" name="session_id" value={modal.session.id} />
+            ) : (
+              <input type="hidden" name="game_id" value={modal.game.id} />
+            )}
+            <button type="button" onClick={onClose} className="btn-secondary">
+              キャンセル
+            </button>
+            <button type="submit" className="btn-danger">
+              <Trash2 className="h-4 w-4" />
+              削除する
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );
@@ -852,10 +977,10 @@ function StatsTeamSection({
         <div className="card p-4 text-sm text-slate-400">選手がいません。</div>
       ) : (
         stats.map((row) => (
-          <article className="card p-3" key={row.user.id}>
+          <article className="card p-3" key={participantKey(row.participant)}>
             <div className="mb-2 flex items-center gap-2">
-              <span className="w-8 text-xs text-slate-400">{row.user.uniform_no ?? "-"}</span>
-              <h3 className="min-w-0 flex-1 truncate text-sm font-bold text-ink">{getProfileDisplayName(row.user)}</h3>
+              <span className="w-8 text-xs text-slate-400">{getParticipantUniformNo(row.participant) ?? "-"}</span>
+              <h3 className="min-w-0 flex-1 truncate text-sm font-bold text-ink">{getParticipantDisplayName(row.participant)}</h3>
               <span className="text-xs font-semibold text-slate-500">{row.points}pt</span>
             </div>
             <div className="grid grid-cols-4 gap-2 text-center">

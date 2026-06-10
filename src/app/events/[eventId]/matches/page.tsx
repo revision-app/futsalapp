@@ -1,9 +1,11 @@
 import { AppShell } from "@/components/AppShell";
 import { MatchSessionClient } from "@/components/matches/MatchSessionClient";
 import { requireUser } from "@/lib/auth";
+import { compareParticipants, type MatchParticipant } from "@/lib/matchStats";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type {
   Attendance,
+  EventGuest,
   Event,
   MatchGame,
   MatchGoalRecord,
@@ -18,7 +20,7 @@ type MatchResultsPageProps = {
 };
 
 type AttendanceWithProfile = Attendance & { profiles: Profile | null };
-type PlayerWithProfile = MatchSessionPlayer & { profiles: Profile | null };
+type PlayerWithParticipant = MatchSessionPlayer & { profiles: Profile | null; event_guests: EventGuest | null };
 
 function normalizeTab(value?: string): "teams" | "live" | "stats" {
   if (value === "live" || value === "stats") return value;
@@ -31,13 +33,18 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
   const profile = await requireUser();
   const admin = createAdminClient();
 
-  const [{ data: event }, { data: attendanceRows }, { data: sessionRows }] = await Promise.all([
+  const [{ data: event }, { data: attendanceRows }, { data: guestRows }, { data: sessionRows }] = await Promise.all([
     admin.from("events").select("*").eq("id", eventId).single(),
     admin
       .from("attendances")
       .select("*, profiles(*)")
       .eq("event_id", eventId)
       .eq("status", "attending"),
+    admin
+      .from("event_guests")
+      .select("*")
+      .eq("event_id", eventId)
+      .order("created_at", { ascending: true }),
     admin
       .from("match_sessions")
       .select("*")
@@ -59,7 +66,7 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
     sessions[sessions.length - 1] ??
     null;
 
-  let players: (MatchSessionPlayer & { profile: Profile })[] = [];
+  let players: (MatchSessionPlayer & { participant: MatchParticipant })[] = [];
   let games: MatchGame[] = [];
   let goals: MatchGoalRecord[] = [];
 
@@ -67,7 +74,7 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
     const [{ data: playerRows }, { data: gameRows }] = await Promise.all([
       admin
         .from("match_session_players")
-        .select("*, profiles(*)")
+        .select("*, profiles(*), event_guests(*)")
         .eq("session_id", selectedSession.id),
       admin
         .from("match_games")
@@ -76,12 +83,24 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
         .order("game_no", { ascending: true }),
     ]);
 
-    players = ((playerRows ?? []) as PlayerWithProfile[])
-      .filter((row): row is PlayerWithProfile & { profiles: Profile } => Boolean(row.profiles))
-      .map((row) => ({
-        ...row,
-        profile: row.profiles,
-      }));
+    players = ((playerRows ?? []) as PlayerWithParticipant[]).reduce<(MatchSessionPlayer & { participant: MatchParticipant })[]>(
+      (rows, row) => {
+        if (row.user_id && row.profiles) {
+          rows.push({
+            ...row,
+            participant: { kind: "member", id: row.user_id, profile: row.profiles } satisfies MatchParticipant,
+          });
+        }
+        if (row.guest_id && row.event_guests) {
+          rows.push({
+            ...row,
+            participant: { kind: "guest", id: row.guest_id, guest: row.event_guests } satisfies MatchParticipant,
+          });
+        }
+        return rows;
+      },
+      []
+    );
 
     games = (gameRows ?? []) as MatchGame[];
 
@@ -99,10 +118,20 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
     }
   }
 
-  const attendees = ((attendanceRows ?? []) as AttendanceWithProfile[])
+  const attendees: MatchParticipant[] = ((attendanceRows ?? []) as AttendanceWithProfile[])
     .map((row) => row.profiles)
     .filter((row): row is Profile => Boolean(row))
-    .sort((a, b) => (a.uniform_no ?? 9999) - (b.uniform_no ?? 9999) || a.display_name.localeCompare(b.display_name));
+    .map((row) => ({ kind: "member", id: row.id, profile: row }));
+
+  attendees.push(
+    ...((guestRows ?? []) as EventGuest[]).map((guest) => ({
+      kind: "guest" as const,
+      id: guest.id,
+      guest,
+    }))
+  );
+
+  attendees.sort(compareParticipants);
 
   return (
     <AppShell profile={profile} active="events">

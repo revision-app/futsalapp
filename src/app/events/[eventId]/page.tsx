@@ -4,13 +4,13 @@ import { AppShell } from "@/components/AppShell";
 import { AttendanceControls } from "@/components/AttendanceControls";
 import { EventTypeBadge } from "@/components/EventTypeBadge";
 import { Notice } from "@/components/Notice";
-import { deleteEventAction } from "@/lib/actions/events";
+import { createEventGuestAction, deleteEventAction } from "@/lib/actions/events";
 import { ATTENDANCE_LABELS, ATTENDANCE_STATUS_OPTIONS, MVP_EVENT_TYPES } from "@/lib/constants";
 import { formatEventDateTimeRangeJst } from "@/lib/dates";
 import { requireUser } from "@/lib/auth";
 import { getProfileDisplayName } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/server";
-import type { Attendance, AttendanceStatus, Event, Profile, Season } from "@/lib/types";
+import type { Attendance, AttendanceStatus, Event, EventGuest, Profile, Season } from "@/lib/types";
 
 type EventDetail = Event & { seasons: Pick<Season, "name"> | null };
 type AttendanceWithProfile = Attendance & { profiles: Profile | null };
@@ -46,7 +46,14 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
     .eq("event_id", eventId)
     .order("updated_at", { ascending: true });
 
+  const { data: guests } = await supabase
+    .from("event_guests")
+    .select("*")
+    .eq("event_id", eventId)
+    .order("created_at", { ascending: true });
+
   const attendanceRows = (attendances ?? []) as AttendanceWithProfile[];
+  const guestRows = (guests ?? []) as EventGuest[];
   const myAttendance = attendanceRows.find((row) => row.user_id === profile.id);
   const isMvpEvent = MVP_EVENT_TYPES.includes((event as EventDetail).event_type);
   const canVoteMvp = myAttendance?.status === "attending";
@@ -95,6 +102,35 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
               </div>
             </div>
             <AttendanceControls eventId={eventId} currentStatus={myAttendance?.status ?? "pending"} />
+          </div>
+
+          <div className="rounded-md border border-slate-200 bg-white p-3">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-ink">ゲスト参加者</h3>
+                <p className="text-xs text-slate-500">試合結果入力には使えます。MVP投票と年間集計には含めません。</p>
+              </div>
+            </div>
+            {profile.role === "admin" ? (
+              <form action={createEventGuestAction} className="mb-3 grid grid-cols-[1fr_auto] gap-2">
+                <input type="hidden" name="event_id" value={eventId} />
+                <input className="form-input" name="display_name" placeholder="ゲスト名" maxLength={80} required />
+                <button type="submit" className="btn-secondary whitespace-nowrap">
+                  追加
+                </button>
+              </form>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {guestRows.length === 0 ? (
+                <span className="text-sm text-slate-400">ゲストはまだ追加されていません</span>
+              ) : (
+                guestRows.map((guest) => (
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700" key={guest.id}>
+                    {guest.display_name}（ゲスト）
+                  </span>
+                ))
+              )}
+            </div>
           </div>
 
           {isMvpEvent ? (

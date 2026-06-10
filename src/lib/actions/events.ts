@@ -96,6 +96,30 @@ export async function updateEventAction(formData: FormData) {
   redirect(`/events/${eventId}`);
 }
 
+export async function createEventGuestAction(formData: FormData) {
+  const currentUser = await requireAdmin();
+  const eventId = getString(formData, "event_id");
+  const displayName = getString(formData, "display_name");
+
+  if (!displayName) {
+    redirect(`/events/${eventId}?error=${encodeURIComponent("ゲスト名を入力してください。")}`);
+  }
+
+  const admin = createAdminClient();
+  const { error } = await admin.from("event_guests").insert({
+    event_id: eventId,
+    display_name: displayName,
+    created_by: currentUser.id,
+  });
+
+  if (error) {
+    redirect(`/events/${eventId}?error=${encodeURIComponent("ゲストを追加できませんでした。同じ名前が既に登録されている可能性があります。")}`);
+  }
+
+  revalidatePath(`/events/${eventId}`);
+  revalidatePath(`/events/${eventId}/matches`);
+}
+
 export async function deleteEventAction(formData: FormData) {
   await requireAdmin();
   const eventId = getString(formData, "event_id");

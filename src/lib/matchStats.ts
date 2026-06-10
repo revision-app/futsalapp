@@ -1,6 +1,11 @@
-import type { MatchGame, MatchGoalRecord, MatchSessionPlayer, MatchTeam, Profile } from "@/lib/types";
+import { getProfileDisplayName } from "@/lib/profile";
+import type { EventGuest, MatchGame, MatchGoalRecord, MatchSessionPlayer, MatchTeam, Profile } from "@/lib/types";
 
-export type MatchPlayer = MatchSessionPlayer & { profile: Profile };
+export type MatchParticipant =
+  | { kind: "member"; id: string; profile: Profile }
+  | { kind: "guest"; id: string; guest: EventGuest };
+
+export type MatchPlayer = MatchSessionPlayer & { participant: MatchParticipant };
 
 export type GameScore = {
   gameId: string;
@@ -9,7 +14,7 @@ export type GameScore = {
 };
 
 export type SessionPlayerStats = {
-  user: Profile;
+  participant: MatchParticipant;
   team: MatchTeam;
   games: number;
   wins: number;
@@ -26,6 +31,61 @@ export type SessionPlayerStats = {
   teamGoalsAgainst: number;
   goalDiff: number;
 };
+
+export function participantKey(participant: MatchParticipant): string {
+  return `${participant.kind}:${participant.id}`;
+}
+
+export function memberKey(id: string): string {
+  return `member:${id}`;
+}
+
+export function guestKey(id: string): string {
+  return `guest:${id}`;
+}
+
+export function matchPlayerKey(player: MatchPlayer): string {
+  return player.user_id ? memberKey(player.user_id) : guestKey(player.guest_id ?? "");
+}
+
+export function getParticipantDisplayName(participant: MatchParticipant): string {
+  return participant.kind === "member"
+    ? getProfileDisplayName(participant.profile)
+    : `${participant.guest.display_name}（ゲスト）`;
+}
+
+export function getParticipantUniformNo(participant: MatchParticipant): number | null {
+  return participant.kind === "member" ? participant.profile.uniform_no : null;
+}
+
+export function compareParticipants(a: MatchParticipant, b: MatchParticipant): number {
+  return (
+    (getParticipantUniformNo(a) ?? 9999) - (getParticipantUniformNo(b) ?? 9999) ||
+    getParticipantDisplayName(a).localeCompare(getParticipantDisplayName(b))
+  );
+}
+
+export function goalScorerKey(goal: MatchGoalRecord): string {
+  return goal.scorer_id ? memberKey(goal.scorer_id) : guestKey(goal.scorer_guest_id ?? "");
+}
+
+export function goalAssistKey(goal: MatchGoalRecord): string | null {
+  if (goal.assist_id) return memberKey(goal.assist_id);
+  if (goal.assist_guest_id) return guestKey(goal.assist_guest_id);
+  return null;
+}
+
+export function gameGkKey(game: MatchGame, team: MatchTeam): string | null {
+  if (team === "rev1") {
+    if (game.rev1_gk_id) return memberKey(game.rev1_gk_id);
+    if (game.rev1_gk_guest_id) return guestKey(game.rev1_gk_guest_id);
+    return null;
+  }
+
+  if (game.rev2_gk_id) return memberKey(game.rev2_gk_id);
+  if (game.rev2_gk_guest_id) return guestKey(game.rev2_gk_guest_id);
+  return null;
+}
 
 export function activeGoals(goals: MatchGoalRecord[]): MatchGoalRecord[] {
   return goals.filter((goal) => !goal.cancelled_at);
@@ -56,8 +116,8 @@ export function computeSessionStats(
 
   const stats = new Map<string, SessionPlayerStats>();
   for (const player of players) {
-    stats.set(player.user_id, {
-      user: player.profile,
+    stats.set(matchPlayerKey(player), {
+      participant: player.participant,
       team: player.team,
       games: games.length,
       wins: 0,
@@ -77,21 +137,23 @@ export function computeSessionStats(
   }
 
   for (const goal of currentGoals) {
-    const scorer = stats.get(goal.scorer_id);
+    const scorerKey = goalScorerKey(goal);
+    const scorer = stats.get(scorerKey);
     if (scorer) {
       scorer.goals += 1;
-      const set = goalGamesByUser.get(goal.scorer_id) ?? new Set<string>();
+      const set = goalGamesByUser.get(scorerKey) ?? new Set<string>();
       set.add(goal.game_id);
-      goalGamesByUser.set(goal.scorer_id, set);
+      goalGamesByUser.set(scorerKey, set);
     }
 
-    if (goal.assist_id) {
-      const assister = stats.get(goal.assist_id);
+    const assistKey = goalAssistKey(goal);
+    if (assistKey) {
+      const assister = stats.get(assistKey);
       if (assister) {
         assister.assists += 1;
-        const set = assistGamesByUser.get(goal.assist_id) ?? new Set<string>();
+        const set = assistGamesByUser.get(assistKey) ?? new Set<string>();
         set.add(goal.game_id);
-        assistGamesByUser.set(goal.assist_id, set);
+        assistGamesByUser.set(assistKey, set);
       }
     }
   }
@@ -115,16 +177,18 @@ export function computeSessionStats(
       }
     }
 
-    if (game.rev1_gk_id) {
-      const gk = stats.get(game.rev1_gk_id);
+    const rev1GkKey = gameGkKey(game, "rev1");
+    if (rev1GkKey) {
+      const gk = stats.get(rev1GkKey);
       if (gk) {
         gk.gkGames += 1;
         gk.gkGoalsAgainst += score.rev2;
       }
     }
 
-    if (game.rev2_gk_id) {
-      const gk = stats.get(game.rev2_gk_id);
+    const rev2GkKey = gameGkKey(game, "rev2");
+    if (rev2GkKey) {
+      const gk = stats.get(rev2GkKey);
       if (gk) {
         gk.gkGames += 1;
         gk.gkGoalsAgainst += score.rev1;
@@ -133,16 +197,16 @@ export function computeSessionStats(
   }
 
   for (const row of stats.values()) {
-    row.goalGames = goalGamesByUser.get(row.user.id)?.size ?? 0;
-    row.assistGames = assistGamesByUser.get(row.user.id)?.size ?? 0;
+    const key = participantKey(row.participant);
+    row.goalGames = goalGamesByUser.get(key)?.size ?? 0;
+    row.assistGames = assistGamesByUser.get(key)?.size ?? 0;
     row.goalDiff = row.teamGoalsFor - row.teamGoalsAgainst;
   }
 
   return [...stats.values()].sort(
     (a, b) =>
       a.team.localeCompare(b.team) ||
-      (a.user.uniform_no ?? 9999) - (b.user.uniform_no ?? 9999) ||
-      a.user.display_name.localeCompare(b.user.display_name)
+      compareParticipants(a.participant, b.participant)
   );
 }
 

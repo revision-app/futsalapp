@@ -52,6 +52,15 @@ export type Attendance = {
   updated_at: string;
 };
 
+export type EventGuest = {
+  id: string;
+  event_id: string;
+  display_name: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type MvpVote = {
   id: string;
   event_id: string;
@@ -85,7 +94,8 @@ export type MatchSession = {
 export type MatchSessionPlayer = {
   id: string;
   session_id: string;
-  user_id: string;
+  user_id: string | null;
+  guest_id: string | null;
   team: MatchTeam;
   created_at: string;
 };
@@ -96,6 +106,8 @@ export type MatchGame = {
   game_no: number;
   rev1_gk_id: string | null;
   rev2_gk_id: string | null;
+  rev1_gk_guest_id: string | null;
+  rev2_gk_guest_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -104,8 +116,10 @@ export type MatchGoalRecord = {
   id: string;
   game_id: string;
   team: MatchTeam;
-  scorer_id: string;
+  scorer_id: string | null;
+  scorer_guest_id: string | null;
   assist_id: string | null;
+  assist_guest_id: string | null;
   created_by: string;
   updated_by: string | null;
   cancelled_by: string | null;
