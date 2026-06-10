@@ -101,9 +101,13 @@ export function MatchSessionClient({
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-    const refreshSoon = () => {
+    const refreshSoon = (payload: unknown) => {
+      console.log("[Realtime] change received:", payload);
       if (refreshTimer) clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => router.refresh(), 150);
+      refreshTimer = setTimeout(() => {
+        console.log("[Realtime] calling router.refresh()");
+        router.refresh();
+      }, 150);
     };
 
     const channel = supabase
@@ -112,7 +116,9 @@ export function MatchSessionClient({
       .on("postgres_changes", { event: "*", schema: "public", table: "match_session_players" }, refreshSoon)
       .on("postgres_changes", { event: "*", schema: "public", table: "match_games" }, refreshSoon)
       .on("postgres_changes", { event: "*", schema: "public", table: "match_goal_records" }, refreshSoon)
-      .subscribe();
+      .subscribe((status, err) => {
+        console.log("[Realtime] subscription status:", status, err ?? "");
+      });
 
     return () => {
       if (refreshTimer) clearTimeout(refreshTimer);
