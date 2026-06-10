@@ -101,6 +101,9 @@ export function MatchSessionClient({
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
     console.log("[Realtime] Supabase URL:", process.env.NEXT_PUBLIC_SUPABASE_URL);
+    supabase.auth.getSession().then(({ data }) => {
+      console.log("[Realtime] auth session:", data.session ? `user=${data.session.user.id}` : "NO SESSION");
+    });
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     const refreshSoon = (payload: unknown) => {
       console.log("[Realtime] change received:", payload);
