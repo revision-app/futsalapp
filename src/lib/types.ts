@@ -3,7 +3,7 @@ export type EventType = "practice" | "match" | "party" | "camp";
 export type AttendanceStatus = "attending" | "absent" | "tentative" | "pending";
 export type FeedbackType = "opinion" | "request" | "bug" | "other";
 export type MatchSessionStatus = "draft" | "confirmed";
-export type MatchTeam = "rev1" | "rev2";
+export type MatchTeam = "rev1" | "rev2" | "rev3";
 
 export type Profile = {
   id: string;
@@ -84,6 +84,7 @@ export type MatchSession = {
   id: string;
   event_id: string;
   session_no: number;
+  team_count: number;
   status: MatchSessionStatus;
   created_by: string;
   confirmed_by: string | null;
@@ -105,10 +106,14 @@ export type MatchGame = {
   id: string;
   session_id: string;
   game_no: number;
+  team_a: MatchTeam;
+  team_b: MatchTeam;
   rev1_gk_id: string | null;
   rev2_gk_id: string | null;
+  rev3_gk_id: string | null;
   rev1_gk_guest_id: string | null;
   rev2_gk_guest_id: string | null;
+  rev3_gk_guest_id: string | null;
   created_at: string;
   updated_at: string;
 };

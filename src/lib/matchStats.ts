@@ -11,6 +11,7 @@ export type GameScore = {
   gameId: string;
   rev1: number;
   rev2: number;
+  rev3: number;
 };
 
 export type SessionPlayerStats = {
@@ -65,6 +66,29 @@ export function compareParticipants(a: MatchParticipant, b: MatchParticipant): n
   );
 }
 
+export const MATCH_TEAMS: MatchTeam[] = ["rev1", "rev2", "rev3"];
+
+export const TEAM_LABELS: Record<MatchTeam, string> = {
+  rev1: "REV1",
+  rev2: "REV2",
+  rev3: "REV3",
+};
+
+export function getSessionTeams(session: { team_count: number }): MatchTeam[] {
+  return session.team_count === 3 ? MATCH_TEAMS : ["rev1", "rev2"];
+}
+
+export function getGameTeams(game: Pick<MatchGame, "team_a" | "team_b">): [MatchTeam, MatchTeam] {
+  return [game.team_a ?? "rev1", game.team_b ?? "rev2"];
+}
+
+export function getOpponentTeam(game: MatchGame, team: MatchTeam): MatchTeam | null {
+  const [teamA, teamB] = getGameTeams(game);
+  if (team === teamA) return teamB;
+  if (team === teamB) return teamA;
+  return null;
+}
+
 export function goalScorerKey(goal: MatchGoalRecord): string {
   return goal.scorer_id ? memberKey(goal.scorer_id) : guestKey(goal.scorer_guest_id ?? "");
 }
@@ -82,8 +106,14 @@ export function gameGkKey(game: MatchGame, team: MatchTeam): string | null {
     return null;
   }
 
-  if (game.rev2_gk_id) return memberKey(game.rev2_gk_id);
-  if (game.rev2_gk_guest_id) return guestKey(game.rev2_gk_guest_id);
+  if (team === "rev2") {
+    if (game.rev2_gk_id) return memberKey(game.rev2_gk_id);
+    if (game.rev2_gk_guest_id) return guestKey(game.rev2_gk_guest_id);
+    return null;
+  }
+
+  if (game.rev3_gk_id) return memberKey(game.rev3_gk_id);
+  if (game.rev3_gk_guest_id) return guestKey(game.rev3_gk_guest_id);
   return null;
 }
 
@@ -97,12 +127,14 @@ export function getGameScore(game: MatchGame, goals: MatchGoalRecord[]): GameSco
     gameId: game.id,
     rev1: current.filter((goal) => goal.team === "rev1").length,
     rev2: current.filter((goal) => goal.team === "rev2").length,
+    rev3: current.filter((goal) => goal.team === "rev3").length,
   };
 }
 
 export function getGameLabel(game: MatchGame, goals: MatchGoalRecord[]): string {
   const score = getGameScore(game, goals);
-  return `第${game.game_no}試合 ${score.rev1} - ${score.rev2}`;
+  const [teamA, teamB] = getGameTeams(game);
+  return `第${game.game_no}試合 ${TEAM_LABELS[teamA]} ${score[teamA]} - ${score[teamB]} ${TEAM_LABELS[teamB]}`;
 }
 
 export function computeSessionStats(
@@ -119,7 +151,7 @@ export function computeSessionStats(
     stats.set(matchPlayerKey(player), {
       participant: player.participant,
       team: player.team,
-      games: games.length,
+      games: 0,
       wins: 0,
       losses: 0,
       draws: 0,
@@ -160,9 +192,14 @@ export function computeSessionStats(
 
   for (const game of games) {
     const score = getGameScore(game, goals);
+    const [teamA, teamB] = getGameTeams(game);
     for (const row of stats.values()) {
-      const teamScore = row.team === "rev1" ? score.rev1 : score.rev2;
-      const opponentScore = row.team === "rev1" ? score.rev2 : score.rev1;
+      const opponentTeam = row.team === teamA ? teamB : row.team === teamB ? teamA : null;
+      if (!opponentTeam) continue;
+
+      const teamScore = score[row.team];
+      const opponentScore = score[opponentTeam];
+      row.games += 1;
       row.teamGoalsFor += teamScore;
       row.teamGoalsAgainst += opponentScore;
 
@@ -177,21 +214,15 @@ export function computeSessionStats(
       }
     }
 
-    const rev1GkKey = gameGkKey(game, "rev1");
-    if (rev1GkKey) {
-      const gk = stats.get(rev1GkKey);
-      if (gk) {
-        gk.gkGames += 1;
-        gk.gkGoalsAgainst += score.rev2;
-      }
-    }
-
-    const rev2GkKey = gameGkKey(game, "rev2");
-    if (rev2GkKey) {
-      const gk = stats.get(rev2GkKey);
-      if (gk) {
-        gk.gkGames += 1;
-        gk.gkGoalsAgainst += score.rev1;
+    for (const team of getGameTeams(game)) {
+      const gkKey = gameGkKey(game, team);
+      const opponentTeam = getOpponentTeam(game, team);
+      if (gkKey && opponentTeam) {
+        const gk = stats.get(gkKey);
+        if (gk) {
+          gk.gkGames += 1;
+          gk.gkGoalsAgainst += score[opponentTeam];
+        }
       }
     }
   }

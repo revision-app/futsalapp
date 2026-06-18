@@ -13,6 +13,7 @@ import {
   deleteMatchGameAction,
   deleteMatchSessionAction,
   reopenMatchSessionAction,
+  updateMatchSessionTeamCountAction,
   updateGoalRecordAction,
   updateMatchGameGkAction,
 } from "@/lib/actions/matches";
@@ -23,10 +24,13 @@ import {
   gameGkKey,
   getGameLabel,
   getGameScore,
+  getGameTeams,
   getParticipantDisplayName,
   getParticipantUniformNo,
+  getSessionTeams,
   goalAssistKey,
   goalScorerKey,
+  TEAM_LABELS,
   type MatchPlayer,
   type MatchParticipant,
   matchPlayerKey,
@@ -60,23 +64,30 @@ type MatchSessionClientProps = {
   error?: string;
 };
 
-const TEAM_LABELS: Record<MatchTeam, string> = {
-  rev1: "REV1",
-  rev2: "REV2",
-};
-
-const TEAM_STYLES: Record<MatchTeam, { chip: string; text: string; soft: string; button: string }> = {
+const TEAM_STYLES: Record<MatchTeam, { chip: string; text: string; soft: string; button: string; border: string; submit: string }> = {
   rev1: {
     chip: "border-amber-300 bg-amber-50 text-amber-950",
     text: "text-amber-800",
     soft: "bg-amber-50",
     button: "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100",
+    border: "border-l-amber-400",
+    submit: "bg-amber-500 hover:bg-amber-600",
   },
   rev2: {
     chip: "border-rose-300 bg-rose-50 text-rose-950",
     text: "text-rose-800",
     soft: "bg-rose-50",
     button: "border-rose-300 bg-rose-50 text-rose-900 hover:bg-rose-100",
+    border: "border-l-rose-400",
+    submit: "bg-rose-500 hover:bg-rose-600",
+  },
+  rev3: {
+    chip: "border-sky-300 bg-sky-50 text-sky-950",
+    text: "text-sky-800",
+    soft: "bg-sky-50",
+    button: "border-sky-300 bg-sky-50 text-sky-900 hover:bg-sky-100",
+    border: "border-l-sky-400",
+    submit: "bg-sky-500 hover:bg-sky-600",
   },
 };
 
@@ -157,12 +168,15 @@ export function MatchSessionClient({
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     : [];
   const stats = useMemo(() => computeSessionStats(players, games, goals), [players, games, goals]);
-  const rev1Players = teamPlayers(players, "rev1");
-  const rev2Players = teamPlayers(players, "rev2");
+  const activeTeams = selectedSession ? getSessionTeams(selectedSession) : (["rev1", "rev2"] satisfies MatchTeam[]);
+  const playersByTeam = useMemo(
+    () => Object.fromEntries(activeTeams.map((team) => [team, teamPlayers(players, team)])) as Record<MatchTeam, MatchPlayer[]>,
+    [activeTeams, players]
+  );
   const unassigned = attendees
     .filter((participant) => !assignmentByKey.has(participantKey(participant)))
     .sort(compareParticipants);
-  const canUseInputTabs = unassigned.length === 0 && rev1Players.length > 0 && rev2Players.length > 0;
+  const canUseInputTabs = unassigned.length === 0 && activeTeams.every((team) => (playersByTeam[team] ?? []).length > 0);
   const visibleTab = canUseInputTabs ? activeTab : "teams";
   const locked = selectedSession?.status === "confirmed" && profile.role !== "admin";
 
@@ -281,10 +295,11 @@ export function MatchSessionClient({
           {visibleTab === "teams" ? (
             <TeamsTab
               attendees={attendees}
-              rev1Players={rev1Players}
-              rev2Players={rev2Players}
+              session={selectedSession}
+              activeTeams={activeTeams}
+              playersByTeam={playersByTeam}
               unassigned={unassigned}
-              sessionId={selectedSession.id}
+              gameCount={games.length}
               locked={locked}
             />
           ) : null}
@@ -296,8 +311,8 @@ export function MatchSessionClient({
               goals={goals}
               selectedGame={selectedGame}
               selectedGameGoals={selectedGameGoals}
-              rev1Players={rev1Players}
-              rev2Players={rev2Players}
+              activeTeams={activeTeams}
+              playersByTeam={playersByTeam}
               playerByKey={playerByKey}
               locked={locked}
               selectedGameId={effectiveSelectedGameId}
@@ -315,6 +330,7 @@ export function MatchSessionClient({
               stats={stats}
               profile={profile}
               locked={locked}
+              activeTeams={activeTeams}
             />
           ) : null}
 
@@ -322,7 +338,7 @@ export function MatchSessionClient({
             <GoalDialog
               modal={goalModal}
               game={selectedGame}
-              players={goalModal.team === "rev1" ? rev1Players : rev2Players}
+              players={playersByTeam[goalModal.team] ?? []}
               playerByKey={playerByKey}
               onClose={() => setGoalModal(null)}
               onSaved={() => {
@@ -380,26 +396,60 @@ function TabButton({
 
 function TeamsTab({
   attendees,
-  rev1Players,
-  rev2Players,
+  session,
+  activeTeams,
+  playersByTeam,
   unassigned,
-  sessionId,
+  gameCount,
   locked,
 }: {
   attendees: MatchParticipant[];
-  rev1Players: MatchPlayer[];
-  rev2Players: MatchPlayer[];
+  session: MatchSession;
+  activeTeams: MatchTeam[];
+  playersByTeam: Record<MatchTeam, MatchPlayer[]>;
   unassigned: MatchParticipant[];
-  sessionId: string;
+  gameCount: number;
   locked: boolean;
 }) {
+  const teamCountLocked = locked || gameCount > 0;
+
   return (
     <section className="space-y-3">
-      <p className="px-1 text-xs text-slate-500">出席者をREV1/REV2に振り分けます。タップで戻せます。</p>
+      <div className="card p-3">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold text-ink">チーム数</h2>
+            <p className="text-xs text-slate-500">今日の編成を選択します。</p>
+          </div>
+          {gameCount > 0 ? <span className="text-xs text-slate-400">試合追加後は変更不可</span> : null}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {[2, 3].map((teamCount) => (
+            <form action={updateMatchSessionTeamCountAction} key={teamCount}>
+              <input type="hidden" name="session_id" value={session.id} />
+              <input type="hidden" name="team_count" value={teamCount} />
+              <button
+                type="submit"
+                disabled={teamCountLocked || session.team_count === teamCount}
+                className={`h-10 w-full rounded-md border text-sm font-bold transition disabled:cursor-not-allowed ${
+                  session.team_count === teamCount
+                    ? "border-primary bg-primary text-white"
+                    : "border-slate-300 bg-white text-slate-600 hover:border-primary/40 hover:bg-primary-light/30"
+                }`}
+              >
+                {teamCount}チーム
+              </button>
+            </form>
+          ))}
+        </div>
+      </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <TeamColumn team="rev1" players={rev1Players} sessionId={sessionId} locked={locked} />
-        <TeamColumn team="rev2" players={rev2Players} sessionId={sessionId} locked={locked} />
+      <p className="px-1 text-xs text-slate-500">出席者を{activeTeams.map((team) => TEAM_LABELS[team]).join("/")}に振り分けます。タップで戻せます。</p>
+
+      <div className={`grid gap-3 ${activeTeams.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+        {activeTeams.map((team) => (
+          <TeamColumn key={team} team={team} players={playersByTeam[team] ?? []} sessionId={session.id} locked={locked} />
+        ))}
       </div>
 
       <div className="card p-3">
@@ -417,9 +467,10 @@ function TeamsTab({
                   <span className="w-8 text-xs text-slate-400">{getParticipantUniformNo(participant) ?? "-"}</span>
                   <span>{getParticipantDisplayName(participant)}</span>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <AssignButton sessionId={sessionId} participant={participant} team="rev1" disabled={locked} />
-                  <AssignButton sessionId={sessionId} participant={participant} team="rev2" disabled={locked} />
+                <div className={`grid gap-2 ${activeTeams.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+                  {activeTeams.map((team) => (
+                    <AssignButton key={team} sessionId={session.id} participant={participant} team={team} disabled={locked} />
+                  ))}
                 </div>
               </div>
             ))
@@ -501,8 +552,8 @@ function LiveTab({
   goals,
   selectedGame,
   selectedGameGoals,
-  rev1Players,
-  rev2Players,
+  activeTeams,
+  playersByTeam,
   playerByKey,
   locked,
   selectedGameId,
@@ -515,8 +566,8 @@ function LiveTab({
   goals: MatchGoalRecord[];
   selectedGame: MatchGame | null;
   selectedGameGoals: MatchGoalRecord[];
-  rev1Players: MatchPlayer[];
-  rev2Players: MatchPlayer[];
+  activeTeams: MatchTeam[];
+  playersByTeam: Record<MatchTeam, MatchPlayer[]>;
   playerByKey: Map<string, MatchParticipant>;
   locked: boolean;
   selectedGameId: string;
@@ -525,12 +576,13 @@ function LiveTab({
   onDeleteGame: (game: MatchGame) => void;
 }) {
   const score = selectedGame ? getGameScore(selectedGame, goals) : null;
-  const goalInputDisabled = !selectedGame || !gameGkKey(selectedGame, "rev1") || !gameGkKey(selectedGame, "rev2") || locked;
+  const selectedGameTeams = selectedGame ? getGameTeams(selectedGame) : ([activeTeams[0], activeTeams[1]] as [MatchTeam, MatchTeam]);
+  const goalInputDisabled = !selectedGame || selectedGameTeams.some((team) => !gameGkKey(selectedGame, team)) || locked;
 
   return (
     <section className="space-y-3">
       <div className="card p-3">
-        <div className="mb-3 flex gap-2">
+        <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
           <select className="form-input" value={selectedGameId} onChange={(event) => onGameChange(event.target.value)} disabled={games.length === 0}>
             {games.length === 0 ? <option value="">試合なし</option> : null}
             {games.map((game) => (
@@ -539,16 +591,34 @@ function LiveTab({
               </option>
             ))}
           </select>
-          <form action={addMatchGameAction}>
+          <form action={addMatchGameAction} className={activeTeams.length === 3 ? "grid grid-cols-2 gap-1 sm:min-w-[11rem]" : ""}>
             <input type="hidden" name="session_id" value={session.id} />
-            <button type="submit" className="btn-secondary h-full whitespace-nowrap" disabled={locked}>
+            {activeTeams.length === 3 ? (
+              <>
+                <select name="team_a" className="form-input h-full px-2 py-1 text-xs" defaultValue="rev1" disabled={locked}>
+                  {activeTeams.map((team) => (
+                    <option value={team} key={team}>
+                      {TEAM_LABELS[team]}
+                    </option>
+                  ))}
+                </select>
+                <select name="team_b" className="form-input h-full px-2 py-1 text-xs" defaultValue="rev2" disabled={locked}>
+                  {activeTeams.map((team) => (
+                    <option value={team} key={team}>
+                      {TEAM_LABELS[team]}
+                    </option>
+                  ))}
+                </select>
+              </>
+            ) : null}
+            <button type="submit" className={`${activeTeams.length === 3 ? "col-span-2" : ""} btn-secondary h-full w-full whitespace-nowrap`} disabled={locked}>
               <Plus className="h-4 w-4" />
               試合追加
             </button>
           </form>
           <button
             type="button"
-            className="btn-danger h-full whitespace-nowrap"
+            className="btn-danger h-full w-full whitespace-nowrap"
             disabled={!selectedGame || locked}
             onClick={() => selectedGame && onDeleteGame(selectedGame)}
           >
@@ -560,27 +630,21 @@ function LiveTab({
         {selectedGame && score ? (
           <div className="space-y-3" key={selectedGame.id}>
             <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-3">
-              <ScoreBlock team="rev1" value={score.rev1} />
+              <ScoreBlock team={selectedGameTeams[0]} value={score[selectedGameTeams[0]]} />
               <span className="pb-4 text-sm font-semibold text-slate-300">対</span>
-              <ScoreBlock team="rev2" value={score.rev2} />
+              <ScoreBlock team={selectedGameTeams[1]} value={score[selectedGameTeams[1]]} />
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <GkSelect
-                key={`${selectedGame.id}-rev1-${gameGkKey(selectedGame, "rev1") ?? "none"}`}
-                gameId={selectedGame.id}
-                team="rev1"
-                players={rev1Players}
-                defaultValue={gameGkKey(selectedGame, "rev1") ?? ""}
-                locked={locked}
-              />
-              <GkSelect
-                key={`${selectedGame.id}-rev2-${gameGkKey(selectedGame, "rev2") ?? "none"}`}
-                gameId={selectedGame.id}
-                team="rev2"
-                players={rev2Players}
-                defaultValue={gameGkKey(selectedGame, "rev2") ?? ""}
-                locked={locked}
-              />
+              {selectedGameTeams.map((team) => (
+                <GkSelect
+                  key={`${selectedGame.id}-${team}-${gameGkKey(selectedGame, team) ?? "none"}`}
+                  gameId={selectedGame.id}
+                  team={team}
+                  players={playersByTeam[team] ?? []}
+                  defaultValue={gameGkKey(selectedGame, team) ?? ""}
+                  locked={locked}
+                />
+              ))}
             </div>
             <p className="text-center text-xs text-slate-400">
               GKは選択すると保存され、GK回数とGK時失点の集計に反映されます。
@@ -592,8 +656,14 @@ function LiveTab({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <GoalButton team="rev1" disabled={goalInputDisabled || rev1Players.length === 0} onClick={() => onGoalModal({ mode: "add", team: "rev1" })} />
-        <GoalButton team="rev2" disabled={goalInputDisabled || rev2Players.length === 0} onClick={() => onGoalModal({ mode: "add", team: "rev2" })} />
+        {selectedGameTeams.map((team) => (
+          <GoalButton
+            key={team}
+            team={team}
+            disabled={goalInputDisabled || (playersByTeam[team] ?? []).length === 0}
+            onClick={() => onGoalModal({ mode: "add", team })}
+          />
+        ))}
       </div>
       {selectedGame && !locked && goalInputDisabled ? (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -713,7 +783,7 @@ function GoalFeedItem({
 }) {
   const cancelled = Boolean(goal.cancelled_at);
   return (
-    <div className={`rounded-md border-l-4 p-3 ${TEAM_STYLES[goal.team].soft} ${goal.team === "rev1" ? "border-l-amber-400" : "border-l-rose-400"} ${cancelled ? "opacity-55" : ""}`}>
+    <div className={`rounded-md border-l-4 p-3 ${TEAM_STYLES[goal.team].soft} ${TEAM_STYLES[goal.team].border} ${cancelled ? "opacity-55" : ""}`}>
       <div className="flex items-start gap-2">
         <Check className={`mt-0.5 h-4 w-4 shrink-0 ${TEAM_STYLES[goal.team].text}`} />
         <div className="min-w-0 flex-1">
@@ -835,7 +905,7 @@ function GoalDialog({
             <button type="button" onClick={onClose} className="btn-secondary">
               キャンセル
             </button>
-            <button type="submit" className={`btn-primary ${team === "rev1" ? "bg-amber-500 hover:bg-amber-600" : "bg-rose-500 hover:bg-rose-600"}`} disabled={locked || players.length === 0}>
+            <button type="submit" className={`btn-primary ${TEAM_STYLES[team].submit}`} disabled={locked || players.length === 0}>
               <Check className="h-4 w-4" />
               確定する
             </button>
@@ -904,6 +974,7 @@ function StatsTab({
   stats,
   profile,
   locked,
+  activeTeams,
 }: {
   session: MatchSession;
   games: MatchGame[];
@@ -911,9 +982,11 @@ function StatsTab({
   stats: ReturnType<typeof computeSessionStats>;
   profile: Profile;
   locked: boolean;
+  activeTeams: MatchTeam[];
 }) {
-  const totalRev1 = games.reduce((sum, game) => sum + getGameScore(game, goals).rev1, 0);
-  const totalRev2 = games.reduce((sum, game) => sum + getGameScore(game, goals).rev2, 0);
+  const totals = Object.fromEntries(
+    activeTeams.map((team) => [team, games.reduce((sum, game) => sum + getGameScore(game, goals)[team], 0)])
+  ) as Record<MatchTeam, number>;
 
   return (
     <section className="space-y-3">
@@ -922,18 +995,17 @@ function StatsTab({
           <span className="text-slate-500">試合数</span>
           <span className="font-bold text-ink">{games.length}試合</span>
         </div>
-        <div className="flex justify-between py-1 text-sm">
-          <span className="text-slate-500">REV1 合計</span>
-          <span className="font-bold text-amber-800">{totalRev1}点</span>
-        </div>
-        <div className="flex justify-between py-1 text-sm">
-          <span className="text-slate-500">REV2 合計</span>
-          <span className="font-bold text-rose-800">{totalRev2}点</span>
-        </div>
+        {activeTeams.map((team) => (
+          <div className="flex justify-between py-1 text-sm" key={team}>
+            <span className="text-slate-500">{TEAM_LABELS[team]} 合計</span>
+            <span className={`font-bold ${TEAM_STYLES[team].text}`}>{totals[team]}点</span>
+          </div>
+        ))}
       </div>
 
-      <StatsTeamSection team="rev1" stats={stats.filter((row) => row.team === "rev1")} />
-      <StatsTeamSection team="rev2" stats={stats.filter((row) => row.team === "rev2")} />
+      {activeTeams.map((team) => (
+        <StatsTeamSection key={team} team={team} stats={stats.filter((row) => row.team === team)} />
+      ))}
 
       {profile.role === "admin" ? (
         session.status === "confirmed" ? (

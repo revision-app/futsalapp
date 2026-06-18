@@ -47,18 +47,31 @@ export function statAverage(numerator: number, denominator: number, digits = 2):
   return (numerator / denominator).toFixed(digits);
 }
 
-function scoreForGame(gameId: string, goalsByGame: Map<string, MatchGoalRecord[]>) {
+type TeamScore = Record<MatchTeam, number>;
+
+function scoreForGame(gameId: string, goalsByGame: Map<string, MatchGoalRecord[]>): TeamScore {
   const goals = goalsByGame.get(gameId) ?? [];
   return {
     rev1: goals.filter((goal) => goal.team === "rev1").length,
     rev2: goals.filter((goal) => goal.team === "rev2").length,
+    rev3: goals.filter((goal) => goal.team === "rev3").length,
   };
 }
 
-function teamScores(team: MatchTeam, score: { rev1: number; rev2: number }) {
-  return team === "rev1"
-    ? { for: score.rev1, against: score.rev2 }
-    : { for: score.rev2, against: score.rev1 };
+function gameTeams(game: MatchGame): [MatchTeam, MatchTeam] {
+  return [game.team_a ?? "rev1", game.team_b ?? "rev2"];
+}
+
+function opponentTeam(game: MatchGame, team: MatchTeam): MatchTeam | null {
+  const [teamA, teamB] = gameTeams(game);
+  if (team === teamA) return teamB;
+  if (team === teamB) return teamA;
+  return null;
+}
+
+function teamScores(game: MatchGame, team: MatchTeam, score: TeamScore) {
+  const opponent = opponentTeam(game, team);
+  return opponent ? { for: score[team], against: score[opponent] } : null;
 }
 
 function sortUsers(a: Profile, b: Profile): number {
@@ -187,11 +200,6 @@ export async function getSeasonMatchStats(seasonId: string): Promise<SeasonMatch
     const memberPlayers = sessionPlayers.filter((player): player is MatchSessionPlayer & { user_id: string } => Boolean(player.user_id));
     const teamByUserId = new Map(memberPlayers.map((player) => [player.user_id, player.team]));
 
-    for (const player of memberPlayers) {
-      const row = stats.get(player.user_id);
-      if (row) row.games += sessionGames.length;
-    }
-
     for (const game of sessionGames) {
       const score = scoreForGame(game.id, goalsByGame);
 
@@ -199,7 +207,10 @@ export async function getSeasonMatchStats(seasonId: string): Promise<SeasonMatch
         const row = stats.get(player.user_id);
         if (!row) continue;
 
-        const side = teamScores(player.team, score);
+        const side = teamScores(game, player.team, score);
+        if (!side) continue;
+
+        row.games += 1;
         row.teamGoalsFor += side.for;
         row.teamGoalsAgainst += side.against;
 
@@ -214,19 +225,19 @@ export async function getSeasonMatchStats(seasonId: string): Promise<SeasonMatch
         }
       }
 
-      if (game.rev1_gk_id && teamByUserId.get(game.rev1_gk_id) === "rev1") {
-        const row = stats.get(game.rev1_gk_id);
-        if (row) {
-          row.gkGames += 1;
-          row.gkGoalsAgainst += score.rev2;
-        }
-      }
+      for (const team of gameTeams(game)) {
+        const opponent = opponentTeam(game, team);
+        if (!opponent) continue;
 
-      if (game.rev2_gk_id && teamByUserId.get(game.rev2_gk_id) === "rev2") {
-        const row = stats.get(game.rev2_gk_id);
-        if (row) {
-          row.gkGames += 1;
-          row.gkGoalsAgainst += score.rev1;
+        const gkId =
+          team === "rev1" ? game.rev1_gk_id : team === "rev2" ? game.rev2_gk_id : game.rev3_gk_id;
+
+        if (gkId && teamByUserId.get(gkId) === team) {
+          const row = stats.get(gkId);
+          if (row) {
+            row.gkGames += 1;
+            row.gkGoalsAgainst += score[opponent];
+          }
         }
       }
 
