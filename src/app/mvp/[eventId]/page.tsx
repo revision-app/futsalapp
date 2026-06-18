@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
 import { EventTypeBadge } from "@/components/EventTypeBadge";
+import { MvpVoteForm } from "@/components/MvpVoteForm";
 import { Notice } from "@/components/Notice";
-import { submitMvpVoteAction } from "@/lib/actions/mvp";
 import { MVP_EVENT_TYPES } from "@/lib/constants";
 import { formatEventDateTimeRangeJst } from "@/lib/dates";
 import { requireUser } from "@/lib/auth";
@@ -14,7 +14,7 @@ type AttendanceWithProfile = Attendance & { profiles: Profile | null };
 
 type MvpVotePageProps = {
   params: Promise<{ eventId: string }>;
-  searchParams?: Promise<{ error?: string }>;
+  searchParams?: Promise<{ error?: string; message?: string }>;
 };
 
 export default async function MvpVotePage({ params, searchParams }: MvpVotePageProps) {
@@ -60,12 +60,16 @@ export default async function MvpVotePage({ params, searchParams }: MvpVotePageP
     .map((attendance) => attendance.profiles)
     .filter(Boolean) as Profile[];
   const canVote = myAttendance?.status === "attending";
-  const myVotes = new Map<number, Set<string>>();
+  const initialSelections: Record<3 | 2 | 1, string | null> = { 3: null, 2: null, 1: null };
   for (const vote of (votes ?? []) as MvpVote[]) {
-    const votees = myVotes.get(vote.points) ?? new Set<string>();
-    votees.add(vote.votee_id);
-    myVotes.set(vote.points, votees);
+    if ((vote.points === 3 || vote.points === 2 || vote.points === 1) && !initialSelections[vote.points]) {
+      initialSelections[vote.points] = vote.votee_id;
+    }
   }
+  const candidates = attendeeRows.map((user) => ({
+    id: user.id,
+    name: getProfileDisplayName(user),
+  }));
 
   return (
     <AppShell profile={profile} active="mvp">
@@ -81,49 +85,11 @@ export default async function MvpVotePage({ params, searchParams }: MvpVotePageP
       </div>
 
       <div className="mb-4">
-        <Notice error={query?.error} />
+        <Notice error={query?.error} message={query?.message} />
       </div>
 
       {canVote ? (
-        <form action={submitMvpVoteAction} className="card space-y-4 p-4">
-          <input type="hidden" name="event_id" value={eventId} />
-          {[3, 2, 1].map((points) => (
-            <fieldset key={points} className="space-y-2">
-              <legend className="text-sm font-medium text-slate-600">{points}pt</legend>
-              {attendeeRows.length === 0 ? (
-                <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
-                  出席者がいません。
-                </p>
-              ) : (
-                <div className="grid gap-2">
-                  {attendeeRows.map((user) => {
-                    const inputId = `votee-${points}-${user.id}`;
-                    return (
-                      <label
-                        className="flex min-h-11 items-center gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50"
-                        htmlFor={inputId}
-                        key={user.id}
-                      >
-                        <input
-                          className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
-                          defaultChecked={myVotes.get(points)?.has(user.id) ?? false}
-                          id={inputId}
-                          name={`votee_${points}`}
-                          type="checkbox"
-                          value={user.id}
-                        />
-                        <span className="min-w-0 flex-1 truncate">{getProfileDisplayName(user)}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </fieldset>
-          ))}
-          <button type="submit" className="btn-primary w-full">
-            投票する
-          </button>
-        </form>
+        <MvpVoteForm eventId={eventId} candidates={candidates} initialSelections={initialSelections} />
       ) : (
         <div className="card p-5 text-sm text-slate-600">
           MVP投票は出席者のみ可能です。出席に変更する場合は、イベント詳細で出欠を更新してください。

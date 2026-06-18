@@ -26,13 +26,17 @@ export async function submitMvpVoteAction(formData: FormData) {
   const currentUser = await requireUser();
   const eventId = getString(formData, "event_id");
   const admin = createAdminClient();
-  const selections = [3, 2, 1]
-    .flatMap((points) =>
-      getStrings(formData, `votee_${points}`).map((voteeId) => ({
-        points,
-        votee_id: voteeId,
-      }))
-    );
+  const selections = [3, 2, 1].flatMap((points) => {
+    const voteeIds = getStrings(formData, `votee_${points}`);
+    if (voteeIds.length > 1) {
+      redirectWithMvpError(eventId, "同じポイントに複数人を投票することはできません。");
+    }
+
+    return voteeIds.map((voteeId) => ({
+      points,
+      votee_id: voteeId,
+    }));
+  });
 
   if (selections.length === 0) {
     redirectWithMvpError(eventId, "1件以上投票してください。");
@@ -97,5 +101,5 @@ export async function submitMvpVoteAction(formData: FormData) {
 
   revalidatePath(`/mvp/${eventId}`);
   revalidatePath(`/mvp/${eventId}/results`);
-  redirect(currentUser.role === "admin" ? `/mvp/${eventId}/results` : `/mvp/${eventId}`);
+  redirect(`/mvp/${eventId}?message=${encodeURIComponent("投票完了しました！")}`);
 }
