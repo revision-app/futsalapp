@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin, requireUser } from "@/lib/auth";
 import { MVP_EVENT_TYPES } from "@/lib/constants";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { EventType } from "@/lib/types";
@@ -48,7 +48,7 @@ export async function submitMvpVoteAction(formData: FormData) {
   }
 
   const [{ data: event }, { data: myAttendance }] = await Promise.all([
-    admin.from("events").select("event_type").eq("id", eventId).single(),
+    admin.from("events").select("event_type, mvp_voting_closed_at").eq("id", eventId).single(),
     admin
       .from("attendances")
       .select("status")
@@ -59,6 +59,10 @@ export async function submitMvpVoteAction(formData: FormData) {
 
   if (!event || !MVP_EVENT_TYPES.includes(event.event_type as EventType)) {
     redirectWithMvpError(eventId, "このイベントはMVP投票の対象外です。");
+  }
+
+  if (event.mvp_voting_closed_at) {
+    redirectWithMvpError(eventId, "MVP投票は締め切られています。");
   }
 
   if (myAttendance?.status !== "attending") {
@@ -102,4 +106,36 @@ export async function submitMvpVoteAction(formData: FormData) {
   revalidatePath(`/mvp/${eventId}`);
   revalidatePath(`/mvp/${eventId}/results`);
   redirect(`/mvp/${eventId}?message=${encodeURIComponent("投票完了しました！")}`);
+}
+
+export async function closeMvpVotingAction(formData: FormData) {
+  await requireAdmin();
+  const eventId = getString(formData, "event_id");
+  const admin = createAdminClient();
+
+  const { data: event, error: eventError } = await admin
+    .from("events")
+    .select("event_type, mvp_voting_closed_at")
+    .eq("id", eventId)
+    .single();
+
+  if (eventError) throw new Error(eventError.message);
+
+  if (!event || !MVP_EVENT_TYPES.includes(event.event_type as EventType)) {
+    redirectWithMvpError(eventId, "このイベントはMVP投票の対象外です。");
+  }
+
+  if (!event.mvp_voting_closed_at) {
+    const { error } = await admin
+      .from("events")
+      .update({ mvp_voting_closed_at: new Date().toISOString() })
+      .eq("id", eventId);
+
+    if (error) throw new Error(error.message);
+  }
+
+  revalidatePath(`/events/${eventId}`);
+  revalidatePath(`/mvp/${eventId}`);
+  revalidatePath(`/mvp/${eventId}/results`);
+  redirect(`/mvp/${eventId}/results?message=${encodeURIComponent("MVP投票を締め切りました。")}`);
 }

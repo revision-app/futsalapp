@@ -40,6 +40,7 @@ export type Event = {
   location: string;
   event_date: string;
   end_date: string | null;
+  mvp_voting_closed_at: string | null;
   created_by: string;
   created_at: string;
 };

@@ -52,11 +52,13 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
     .eq("event_id", eventId)
     .order("created_at", { ascending: true });
 
+  const eventRow = event as EventDetail;
   const attendanceRows = (attendances ?? []) as AttendanceWithProfile[];
   const guestRows = (guests ?? []) as EventGuest[];
   const myAttendance = attendanceRows.find((row) => row.user_id === profile.id);
-  const isMvpEvent = MVP_EVENT_TYPES.includes((event as EventDetail).event_type);
-  const canVoteMvp = myAttendance?.status === "attending";
+  const isMvpEvent = MVP_EVENT_TYPES.includes(eventRow.event_type);
+  const isMvpVotingClosed = Boolean(eventRow.mvp_voting_closed_at);
+  const canVoteMvp = myAttendance?.status === "attending" && !isMvpVotingClosed;
 
   const grouped = {
     attending: attendanceRows.filter((row) => row.status === "attending"),
@@ -64,8 +66,6 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
     tentative: attendanceRows.filter((row) => row.status === "tentative"),
     pending: attendanceRows.filter((row) => row.status === "pending"),
   } satisfies Record<AttendanceStatus, AttendanceWithProfile[]>;
-
-  const eventRow = event as EventDetail;
 
   return (
     <AppShell profile={profile} active="events">
@@ -163,13 +163,19 @@ export default async function EventDetailPage({ params, searchParams }: EventDet
             </Link>
           ) : null}
 
-          {isMvpEvent && !canVoteMvp ? (
+          {isMvpEvent && isMvpVotingClosed ? (
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+              MVP投票は締め切られています。
+            </div>
+          ) : null}
+
+          {isMvpEvent && !isMvpVotingClosed && !canVoteMvp ? (
             <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
               MVP投票は出席者のみ可能です。
             </div>
           ) : null}
 
-          {isMvpEvent && profile.role === "admin" ? (
+          {isMvpEvent && profile.role === "admin" && isMvpVotingClosed ? (
             <Link
               href={`/mvp/${eventId}/results`}
               className="flex items-center gap-3 rounded-md border border-slate-200 bg-white p-3 text-left transition hover:border-primary/40 hover:bg-primary-light/30"

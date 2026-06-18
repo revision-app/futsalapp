@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Trophy } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { EventTypeBadge } from "@/components/EventTypeBadge";
+import { Notice } from "@/components/Notice";
 import { formatEventDateTimeRangeJst } from "@/lib/dates";
 import { requireAdmin } from "@/lib/auth";
 import { getProfileDisplayName } from "@/lib/profile";
@@ -12,10 +13,12 @@ type VoteWithVotee = MvpVote & { votee: Profile | null };
 
 type MvpResultsPageProps = {
   params: Promise<{ eventId: string }>;
+  searchParams?: Promise<{ error?: string; message?: string }>;
 };
 
-export default async function MvpResultsPage({ params }: MvpResultsPageProps) {
+export default async function MvpResultsPage({ params, searchParams }: MvpResultsPageProps) {
   const { eventId } = await params;
+  const query = await searchParams;
   const profile = await requireAdmin();
   const supabase = await createClient();
 
@@ -31,6 +34,23 @@ export default async function MvpResultsPage({ params }: MvpResultsPageProps) {
     return (
       <AppShell profile={profile} active="mvp">
         <div className="card p-6 text-sm text-slate-500">イベントが見つかりません。</div>
+      </AppShell>
+    );
+  }
+
+  const eventRow = event as Event;
+  if (!eventRow.mvp_voting_closed_at) {
+    return (
+      <AppShell profile={profile} active="mvp">
+        <div className="mb-4">
+          <Notice error={query?.error} message={query?.message} />
+        </div>
+        <div className="card p-6 text-sm text-slate-600">
+          MVP投票の締切前のため、結果はまだ表示できません。
+          <Link href={`/mvp/${eventId}`} className="btn-primary mt-4 w-full">
+            投票締切へ
+          </Link>
+        </div>
       </AppShell>
     );
   }
@@ -61,10 +81,13 @@ export default async function MvpResultsPage({ params }: MvpResultsPageProps) {
   }
 
   const ranked = [...totals.values()].sort((a, b) => b.total - a.total || b.pt3 - a.pt3 || b.pt2 - a.pt2);
-  const eventRow = event as Event;
 
   return (
     <AppShell profile={profile} active="mvp">
+      <div className="mb-4">
+        <Notice error={query?.error} message={query?.message} />
+      </div>
+
       <div className="mb-4">
         <div className="mb-2 flex items-center gap-2">
           <EventTypeBadge type={eventRow.event_type} />

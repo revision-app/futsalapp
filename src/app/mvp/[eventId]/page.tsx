@@ -3,6 +3,7 @@ import { AppShell } from "@/components/AppShell";
 import { EventTypeBadge } from "@/components/EventTypeBadge";
 import { MvpVoteForm } from "@/components/MvpVoteForm";
 import { Notice } from "@/components/Notice";
+import { closeMvpVotingAction } from "@/lib/actions/mvp";
 import { MVP_EVENT_TYPES } from "@/lib/constants";
 import { formatEventDateTimeRangeJst } from "@/lib/dates";
 import { requireUser } from "@/lib/auth";
@@ -48,6 +49,7 @@ export default async function MvpVotePage({ params, searchParams }: MvpVotePageP
   }
 
   const eventRow = event as Event;
+  const isVotingClosed = Boolean(eventRow.mvp_voting_closed_at);
   if (!MVP_EVENT_TYPES.includes(eventRow.event_type)) {
     return (
       <AppShell profile={profile} active="mvp">
@@ -59,6 +61,10 @@ export default async function MvpVotePage({ params, searchParams }: MvpVotePageP
   const attendeeRows = ((attendees ?? []) as AttendanceWithProfile[])
     .map((attendance) => attendance.profiles)
     .filter(Boolean) as Profile[];
+  const { data: allVotes } =
+    profile.role === "admin"
+      ? await supabase.from("mvp_votes").select("voter_id").eq("event_id", eventId)
+      : { data: [] as Pick<MvpVote, "voter_id">[] };
   const canVote = myAttendance?.status === "attending";
   const initialSelections: Record<3 | 2 | 1, string | null> = { 3: null, 2: null, 1: null };
   for (const vote of (votes ?? []) as MvpVote[]) {
@@ -70,6 +76,9 @@ export default async function MvpVotePage({ params, searchParams }: MvpVotePageP
     id: user.id,
     name: getProfileDisplayName(user),
   }));
+  const votedVoterIds = new Set((allVotes ?? []).map((vote) => vote.voter_id));
+  const unvotedCandidates = candidates.filter((candidate) => !votedVoterIds.has(candidate.id));
+  const votedAttendeeCount = candidates.length - unvotedCandidates.length;
 
   return (
     <AppShell profile={profile} active="mvp">
@@ -88,7 +97,49 @@ export default async function MvpVotePage({ params, searchParams }: MvpVotePageP
         <Notice error={query?.error} message={query?.message} />
       </div>
 
-      {canVote ? (
+      {profile.role === "admin" && !isVotingClosed ? (
+        <form action={closeMvpVotingAction} className="card mb-4 p-4">
+          <input type="hidden" name="event_id" value={eventId} />
+          <div className="mb-4">
+            <h2 className="text-sm font-bold text-ink">投票状況</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              出席者 {candidates.length}人 / 投票済み {votedAttendeeCount}人 / 未投票 {unvotedCandidates.length}人
+            </p>
+            <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="mb-2 text-xs font-semibold text-slate-500">未投票</p>
+              {unvotedCandidates.length === 0 ? (
+                <p className="text-sm text-slate-600">全員投票済みです。</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {unvotedCandidates.map((candidate) => (
+                    <span className="rounded-full bg-white px-3 py-1 text-sm text-slate-700" key={candidate.id}>
+                      {candidate.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="mb-3 border-t border-slate-200 pt-3">
+            <h2 className="text-sm font-bold text-ink">投票締切</h2>
+            <p className="mt-1 text-xs text-slate-500">締切後は投票の追加・変更ができなくなり、結果を表示します。</p>
+          </div>
+          <button type="submit" className="btn-primary w-full">
+            投票を締め切る
+          </button>
+        </form>
+      ) : null}
+
+      {isVotingClosed ? (
+        <div className="card p-5 text-sm text-slate-600">
+          MVP投票は締め切られています。
+          {profile.role === "admin" ? (
+            <Link href={`/mvp/${eventId}/results`} className="btn-secondary mt-4 w-full">
+              結果を見る
+            </Link>
+          ) : null}
+        </div>
+      ) : canVote ? (
         <MvpVoteForm eventId={eventId} candidates={candidates} initialSelections={initialSelections} />
       ) : (
         <div className="card p-5 text-sm text-slate-600">
@@ -99,11 +150,6 @@ export default async function MvpVotePage({ params, searchParams }: MvpVotePageP
         </div>
       )}
 
-      {profile.role === "admin" ? (
-        <Link href={`/mvp/${eventId}/results`} className="btn-secondary mt-4 w-full">
-          結果を見る
-        </Link>
-      ) : null}
     </AppShell>
   );
 }
