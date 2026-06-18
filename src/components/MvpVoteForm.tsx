@@ -65,22 +65,22 @@ export function MvpVoteForm({ eventId, candidates, initialSelections }: MvpVoteF
       {candidates.length === 0 ? (
         <p className="p-5 text-sm text-slate-500">出席者がいません。</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[420px] table-fixed border-collapse">
+        <div className="overflow-hidden">
+          <table className="w-full table-fixed border-collapse">
             <colgroup>
-              <col className="w-[46%]" />
-              <col className="w-[18%]" />
-              <col className="w-[18%]" />
-              <col className="w-[18%]" />
+              <col className="w-[43%]" />
+              <col className="w-[19%]" />
+              <col className="w-[19%]" />
+              <col className="w-[19%]" />
             </colgroup>
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80">
-                <th scope="col" className="px-3 py-3 text-left text-xs font-semibold text-slate-500">
+                <th scope="col" className="px-2 py-3 text-left text-xs font-semibold text-slate-500 sm:px-3">
                   候補者
                 </th>
                 {MVP_POINT_OPTIONS.map((option) => (
-                  <th key={option.points} scope="col" className="px-2 py-3 text-center">
-                    <span className="block text-2xl leading-none text-ink" aria-label={option.label}>
+                  <th key={option.points} scope="col" className="px-1 py-3 text-center sm:px-2">
+                    <span className="block text-xl leading-none text-ink sm:text-2xl" aria-label={option.label}>
                       {option.symbol}
                     </span>
                   </th>
@@ -90,7 +90,7 @@ export function MvpVoteForm({ eventId, candidates, initialSelections }: MvpVoteF
             <tbody className="divide-y divide-slate-100">
               {candidates.map((candidate) => (
                 <tr key={candidate.id} className="bg-white">
-                  <th scope="row" className="px-3 py-2 text-left text-sm font-medium text-slate-700">
+                  <th scope="row" className="px-2 py-2 text-left text-sm font-medium text-slate-700 sm:px-3">
                     <span className="block truncate">{candidate.name}</span>
                   </th>
                   {MVP_POINT_OPTIONS.map((option) => {
@@ -99,7 +99,7 @@ export function MvpVoteForm({ eventId, candidates, initialSelections }: MvpVoteF
                     const isDisabled = Boolean(blockingReason);
 
                     return (
-                      <td key={option.points} className="px-2 py-2 text-center">
+                      <td key={option.points} className="px-1 py-2 text-center sm:px-2">
                         <button
                           type="button"
                           disabled={isDisabled}
@@ -114,7 +114,7 @@ export function MvpVoteForm({ eventId, candidates, initialSelections }: MvpVoteF
                                 : undefined
                           }
                           className={[
-                            "mx-auto flex h-10 w-10 items-center justify-center rounded-md border text-lg font-semibold leading-none transition",
+                            "mx-auto flex h-8 w-8 items-center justify-center rounded-md border text-base font-semibold leading-none transition sm:h-10 sm:w-10 sm:text-lg",
                             isSelected
                               ? "border-primary bg-primary text-white shadow-sm shadow-emerald-900/10"
                               : isDisabled
