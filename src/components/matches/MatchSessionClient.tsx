@@ -64,6 +64,14 @@ type MatchSessionClientProps = {
   error?: string;
 };
 
+const LATEST_GAME_ID = "__latest__";
+
+const THREE_TEAM_GAME_SEQUENCE: [MatchTeam, MatchTeam][] = [
+  ["rev1", "rev2"],
+  ["rev2", "rev3"],
+  ["rev3", "rev1"],
+];
+
 const TEAM_STYLES: Record<MatchTeam, { chip: string; text: string; soft: string; button: string; border: string; submit: string }> = {
   rev1: {
     chip: "border-amber-300 bg-amber-50 text-amber-950",
@@ -101,6 +109,11 @@ function eventDateLabel(value: string): string {
 
 function teamPlayers(players: MatchPlayer[], team: MatchTeam): MatchPlayer[] {
   return players.filter((player) => player.team === team).sort((a, b) => compareParticipants(a.participant, b.participant));
+}
+
+function nextGameTeams(activeTeams: MatchTeam[], games: MatchGame[]): [MatchTeam, MatchTeam] {
+  if (activeTeams.length !== 3) return [activeTeams[0] ?? "rev1", activeTeams[1] ?? "rev2"];
+  return THREE_TEAM_GAME_SEQUENCE[games.length % THREE_TEAM_GAME_SEQUENCE.length];
 }
 
 export function MatchSessionClient({
@@ -158,9 +171,11 @@ export function MatchSessionClient({
 
   const playerByKey = useMemo(() => new Map(players.map((player) => [matchPlayerKey(player), player.participant])), [players]);
   const assignmentByKey = useMemo(() => new Map(players.map((player) => [matchPlayerKey(player), player.team])), [players]);
-  const effectiveSelectedGameId = games.some((game) => game.id === selectedGameId)
-    ? selectedGameId
-    : games[games.length - 1]?.id ?? "";
+  const latestGameId = games[games.length - 1]?.id ?? "";
+  const effectiveSelectedGameId =
+    selectedGameId !== LATEST_GAME_ID && games.some((game) => game.id === selectedGameId)
+      ? selectedGameId
+      : latestGameId;
   const selectedGame = games.find((game) => game.id === effectiveSelectedGameId) ?? games[0] ?? null;
   const selectedGameGoals = selectedGame
     ? goals
@@ -575,8 +590,12 @@ function LiveTab({
   onGoalModal: (modal: GoalModal) => void;
   onDeleteGame: (game: MatchGame) => void;
 }) {
+  const router = useRouter();
+  const [addError, setAddError] = useState<string | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
   const score = selectedGame ? getGameScore(selectedGame, goals) : null;
   const selectedGameTeams = selectedGame ? getGameTeams(selectedGame) : ([activeTeams[0], activeTeams[1]] as [MatchTeam, MatchTeam]);
+  const [nextTeamA, nextTeamB] = nextGameTeams(activeTeams, games);
   const goalInputDisabled = !selectedGame || selectedGameTeams.some((team) => !gameGkKey(selectedGame, team)) || locked;
 
   return (
@@ -591,18 +610,35 @@ function LiveTab({
               </option>
             ))}
           </select>
-          <form action={addMatchGameAction} className={activeTeams.length === 3 ? "grid grid-cols-2 gap-1 sm:min-w-[11rem]" : ""}>
+          <form
+            action={async (formData) => {
+              setAddError(null);
+              setIsAdding(true);
+              onGameChange(LATEST_GAME_ID);
+
+              try {
+                await addMatchGameAction(formData);
+                router.refresh();
+              } catch (error) {
+                setAddError(error instanceof Error ? error.message : "試合の追加に失敗しました。");
+              } finally {
+                setIsAdding(false);
+              }
+            }}
+            className={activeTeams.length === 3 ? "grid grid-cols-2 gap-1 sm:min-w-[11rem]" : ""}
+            key={`${session.id}-${games.length}-${nextTeamA}-${nextTeamB}`}
+          >
             <input type="hidden" name="session_id" value={session.id} />
             {activeTeams.length === 3 ? (
               <>
-                <select name="team_a" className="form-input h-full px-2 py-1 text-xs" defaultValue="rev1" disabled={locked}>
+                <select name="team_a" className="form-input h-full px-2 py-1 text-xs" defaultValue={nextTeamA} disabled={locked || isAdding}>
                   {activeTeams.map((team) => (
                     <option value={team} key={team}>
                       {TEAM_LABELS[team]}
                     </option>
                   ))}
                 </select>
-                <select name="team_b" className="form-input h-full px-2 py-1 text-xs" defaultValue="rev2" disabled={locked}>
+                <select name="team_b" className="form-input h-full px-2 py-1 text-xs" defaultValue={nextTeamB} disabled={locked || isAdding}>
                   {activeTeams.map((team) => (
                     <option value={team} key={team}>
                       {TEAM_LABELS[team]}
@@ -611,7 +647,7 @@ function LiveTab({
                 </select>
               </>
             ) : null}
-            <button type="submit" className={`${activeTeams.length === 3 ? "col-span-2" : ""} btn-secondary h-full w-full whitespace-nowrap`} disabled={locked}>
+            <button type="submit" className={`${activeTeams.length === 3 ? "col-span-2" : ""} btn-secondary h-full w-full whitespace-nowrap`} disabled={locked || isAdding}>
               <Plus className="h-4 w-4" />
               試合追加
             </button>
@@ -626,6 +662,12 @@ function LiveTab({
             削除
           </button>
         </div>
+        {addError ? <div className="mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{addError}</div> : null}
+        {selectedGame ? (
+          <div className="mb-3 rounded-md bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
+            表示中: 第{selectedGame.game_no}試合 {TEAM_LABELS[selectedGameTeams[0]]} vs {TEAM_LABELS[selectedGameTeams[1]]}
+          </div>
+        ) : null}
 
         {selectedGame && score ? (
           <div className="space-y-3" key={selectedGame.id}>
@@ -923,6 +965,9 @@ function DeleteConfirmDialog({
   modal: Exclude<DeleteModal, null>;
   onClose: () => void;
 }) {
+  const router = useRouter();
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const isSession = modal.kind === "session";
   const action = isSession ? deleteMatchSessionAction : deleteMatchGameAction;
   const title = isSession ? `セッション${modal.session.session_no}を削除` : `第${modal.game.game_no}試合を削除`;
@@ -947,7 +992,29 @@ function DeleteConfirmDialog({
         </div>
         <div className="space-y-3 p-4">
           <p className="text-sm text-slate-600">{description}</p>
-          <form action={action} className="grid grid-cols-[1fr_2fr] gap-2">
+          {deleteError ? <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{deleteError}</div> : null}
+          <form
+            action={async (formData) => {
+              setDeleteError(null);
+              setIsDeleting(true);
+
+              if (isSession) {
+                await action(formData);
+                return;
+              }
+
+              try {
+                await action(formData);
+                onClose();
+                router.refresh();
+              } catch (error) {
+                setDeleteError(error instanceof Error ? error.message : "削除に失敗しました。");
+              } finally {
+                setIsDeleting(false);
+              }
+            }}
+            className="grid grid-cols-[1fr_2fr] gap-2"
+          >
             {isSession ? (
               <input type="hidden" name="session_id" value={modal.session.id} />
             ) : (
@@ -956,9 +1023,9 @@ function DeleteConfirmDialog({
             <button type="button" onClick={onClose} className="btn-secondary">
               キャンセル
             </button>
-            <button type="submit" className="btn-danger">
+            <button type="submit" className="btn-danger" disabled={isDeleting}>
               <Trash2 className="h-4 w-4" />
-              削除する
+              {isDeleting ? "削除中..." : "削除する"}
             </button>
           </form>
         </div>

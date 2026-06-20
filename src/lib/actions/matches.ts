@@ -11,6 +11,12 @@ type ParticipantRef = {
   id: string;
 };
 
+const THREE_TEAM_GAME_SEQUENCE: [MatchTeam, MatchTeam][] = [
+  ["rev1", "rev2"],
+  ["rev2", "rev3"],
+  ["rev3", "rev1"],
+];
+
 function getString(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
 }
@@ -41,6 +47,11 @@ function opponentTeam(game: { team_a?: MatchTeam | null; team_b?: MatchTeam | nu
   if (team === teamA) return teamB;
   if (team === teamB) return teamA;
   return null;
+}
+
+function nextGameTeams(session: Pick<MatchSession, "team_count">, currentLatestGameNo: number): [MatchTeam, MatchTeam] {
+  if (session.team_count !== 3) return ["rev1", "rev2"];
+  return THREE_TEAM_GAME_SEQUENCE[currentLatestGameNo % THREE_TEAM_GAME_SEQUENCE.length];
 }
 
 function parseParticipantKey(value: string): ParticipantRef {
@@ -368,15 +379,6 @@ export async function addMatchGameAction(formData: FormData) {
   const sessionId = getString(formData, "session_id");
   const { session } = await requireEditableSession(sessionId);
   const admin = createAdminClient();
-  const teamA = getString(formData, "team_a") || "rev1";
-  const teamB = getString(formData, "team_b") || "rev2";
-
-  if (!isMatchTeam(teamA) || !isMatchTeam(teamB) || teamA === teamB) {
-    redirectWithError(session.event_id, sessionId, "対戦チームの指定が不正です。", "live");
-  }
-
-  ensureTeamEnabled(session, teamA, "live");
-  ensureTeamEnabled(session, teamB, "live");
 
   const { data: latest, error: latestError } = await admin
     .from("match_games")
@@ -387,6 +389,17 @@ export async function addMatchGameAction(formData: FormData) {
     .maybeSingle();
 
   if (latestError) throw new Error(latestError.message);
+
+  const [defaultTeamA, defaultTeamB] = nextGameTeams(session, latest?.game_no ?? 0);
+  const teamA = getString(formData, "team_a") || defaultTeamA;
+  const teamB = getString(formData, "team_b") || defaultTeamB;
+
+  if (!isMatchTeam(teamA) || !isMatchTeam(teamB) || teamA === teamB) {
+    redirectWithError(session.event_id, sessionId, "対戦チームの指定が不正です。", "live");
+  }
+
+  ensureTeamEnabled(session, teamA, "live");
+  ensureTeamEnabled(session, teamB, "live");
 
   const { error } = await admin.from("match_games").insert({
     session_id: sessionId,
@@ -427,25 +440,8 @@ export async function deleteMatchGameAction(formData: FormData) {
 
   const { session } = await requireEditableSession(game.session_id);
 
-  const { error } = await admin.from("match_games").delete().eq("id", gameId);
+  const { error } = await admin.rpc("delete_match_game_and_renumber", { p_game_id: gameId });
   if (error) throw new Error(error.message);
-
-  const { data: laterGames, error: laterGamesError } = await admin
-    .from("match_games")
-    .select("id, game_no")
-    .eq("session_id", game.session_id)
-    .gt("game_no", game.game_no)
-    .order("game_no", { ascending: true });
-
-  if (laterGamesError) throw new Error(laterGamesError.message);
-
-  for (const laterGame of laterGames ?? []) {
-    const { error: updateError } = await admin
-      .from("match_games")
-      .update({ game_no: laterGame.game_no - 1 })
-      .eq("id", laterGame.id);
-    if (updateError) throw new Error(updateError.message);
-  }
 
   revalidatePath(matchesPath(session.event_id, session.id, "live"));
 }
