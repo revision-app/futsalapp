@@ -118,6 +118,20 @@ export type MatchGame = {
   updated_at: string;
 };
 
+
+export type MatchPlayerGameStat = {
+  id: string;
+  game_id: string;
+  team: MatchTeam;
+  user_id: string | null;
+  guest_id: string | null;
+  goals: number;
+  assists: number;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
 export type MatchGoalRecord = {
   id: string;
   game_id: string;

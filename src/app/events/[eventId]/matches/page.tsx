@@ -8,7 +8,7 @@ import type {
   EventGuest,
   Event,
   MatchGame,
-  MatchGoalRecord,
+  MatchPlayerGameStat,
   MatchSession,
   MatchSessionPlayer,
   Profile,
@@ -68,7 +68,7 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
 
   let players: (MatchSessionPlayer & { participant: MatchParticipant })[] = [];
   let games: MatchGame[] = [];
-  let goals: MatchGoalRecord[] = [];
+  let playerStats: MatchPlayerGameStat[] = [];
 
   if (selectedSession) {
     const [{ data: playerRows }, { data: gameRows }] = await Promise.all([
@@ -105,8 +105,8 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
     games = (gameRows ?? []) as MatchGame[];
 
     if (games.length > 0) {
-      const { data: goalRows } = await admin
-        .from("match_goal_records")
+      const { data: statRows } = await admin
+        .from("match_player_game_stats")
         .select("*")
         .in(
           "game_id",
@@ -114,7 +114,7 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
         )
         .order("created_at", { ascending: true });
 
-      goals = (goalRows ?? []) as MatchGoalRecord[];
+      playerStats = (statRows ?? []) as MatchPlayerGameStat[];
     }
   }
 
@@ -143,7 +143,7 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
         selectedSession={selectedSession}
         players={players}
         games={games}
-        goals={goals}
+        playerStats={playerStats}
         initialTab={normalizeTab(query.tab)}
         error={query.error}
       />

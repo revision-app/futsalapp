@@ -4,7 +4,7 @@ import type {
   Attendance,
   Event,
   MatchGame,
-  MatchGoalRecord,
+  MatchPlayerGameStat,
   MatchSession,
   MatchSessionPlayer,
   MatchTeam,
@@ -49,12 +49,12 @@ export function statAverage(numerator: number, denominator: number, digits = 2):
 
 type TeamScore = Record<MatchTeam, number>;
 
-function scoreForGame(gameId: string, goalsByGame: Map<string, MatchGoalRecord[]>): TeamScore {
-  const goals = goalsByGame.get(gameId) ?? [];
+function scoreForGame(gameId: string, statsByGame: Map<string, MatchPlayerGameStat[]>): TeamScore {
+  const stats = statsByGame.get(gameId) ?? [];
   return {
-    rev1: goals.filter((goal) => goal.team === "rev1").length,
-    rev2: goals.filter((goal) => goal.team === "rev2").length,
-    rev3: goals.filter((goal) => goal.team === "rev3").length,
+    rev1: stats.filter((stat) => stat.team === "rev1").reduce((sum, stat) => sum + stat.goals, 0),
+    rev2: stats.filter((stat) => stat.team === "rev2").reduce((sum, stat) => sum + stat.goals, 0),
+    rev3: stats.filter((stat) => stat.team === "rev3").reduce((sum, stat) => sum + stat.goals, 0),
   };
 }
 
@@ -133,14 +133,13 @@ export async function getSeasonMatchStats(seasonId: string): Promise<SeasonMatch
   }
 
   const gameIds = gameRows.map((game) => game.id);
-  let goalRows: MatchGoalRecord[] = [];
+  let gameStatRows: MatchPlayerGameStat[] = [];
   if (gameIds.length > 0) {
-    const { data: goals } = await admin
-      .from("match_goal_records")
+    const { data: playerGameStats } = await admin
+      .from("match_player_game_stats")
       .select("*")
-      .in("game_id", gameIds)
-      .is("cancelled_at", null);
-    goalRows = (goals ?? []) as MatchGoalRecord[];
+      .in("game_id", gameIds);
+    gameStatRows = (playerGameStats ?? []) as MatchPlayerGameStat[];
   }
 
   const stats = new Map<string, SeasonUserStats>(
@@ -187,11 +186,11 @@ export async function getSeasonMatchStats(seasonId: string): Promise<SeasonMatch
     playersBySession.set(player.session_id, rows);
   }
 
-  const goalsByGame = new Map<string, MatchGoalRecord[]>();
-  for (const goal of goalRows) {
-    const rows = goalsByGame.get(goal.game_id) ?? [];
-    rows.push(goal);
-    goalsByGame.set(goal.game_id, rows);
+  const statsByGame = new Map<string, MatchPlayerGameStat[]>();
+  for (const stat of gameStatRows) {
+    const rows = statsByGame.get(stat.game_id) ?? [];
+    rows.push(stat);
+    statsByGame.set(stat.game_id, rows);
   }
 
   for (const session of sessionRows) {
@@ -201,7 +200,7 @@ export async function getSeasonMatchStats(seasonId: string): Promise<SeasonMatch
     const teamByUserId = new Map(memberPlayers.map((player) => [player.user_id, player.team]));
 
     for (const game of sessionGames) {
-      const score = scoreForGame(game.id, goalsByGame);
+      const score = scoreForGame(game.id, statsByGame);
 
       for (const player of memberPlayers) {
         const row = stats.get(player.user_id);
@@ -241,20 +240,14 @@ export async function getSeasonMatchStats(seasonId: string): Promise<SeasonMatch
         }
       }
 
-      for (const goal of goalsByGame.get(game.id) ?? []) {
-        if (goal.scorer_id) {
-          const scorer = stats.get(goal.scorer_id);
-          if (scorer && teamByUserId.get(goal.scorer_id) === goal.team) {
-            scorer.goals += 1;
-            scorer.goalGames.add(game.id);
-          }
-        }
-
-        if (goal.assist_id) {
-          const assister = stats.get(goal.assist_id);
-          if (assister && teamByUserId.get(goal.assist_id) === goal.team) {
-            assister.assists += 1;
-            assister.assistGames.add(game.id);
+      for (const playerGameStat of statsByGame.get(game.id) ?? []) {
+        if (playerGameStat.user_id && teamByUserId.get(playerGameStat.user_id) === playerGameStat.team) {
+          const row = stats.get(playerGameStat.user_id);
+          if (row) {
+            row.goals += playerGameStat.goals;
+            row.assists += playerGameStat.assists;
+            if (playerGameStat.goals > 0) row.goalGames.add(game.id);
+            if (playerGameStat.assists > 0) row.assistGames.add(game.id);
           }
         }
       }

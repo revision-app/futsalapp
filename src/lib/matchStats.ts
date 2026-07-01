@@ -1,5 +1,5 @@
 import { getProfileDisplayName } from "@/lib/profile";
-import type { EventGuest, MatchGame, MatchGoalRecord, MatchSessionPlayer, MatchTeam, Profile } from "@/lib/types";
+import type { EventGuest, MatchGame, MatchPlayerGameStat, MatchSessionPlayer, MatchTeam, Profile } from "@/lib/types";
 
 export type MatchParticipant =
   | { kind: "member"; id: string; profile: Profile }
@@ -49,6 +49,12 @@ export function matchPlayerKey(player: MatchPlayer): string {
   return player.user_id ? memberKey(player.user_id) : guestKey(player.guest_id ?? "");
 }
 
+export function matchStatPlayerKey(stat: Pick<MatchPlayerGameStat, "user_id" | "guest_id">): string | null {
+  if (stat.user_id) return memberKey(stat.user_id);
+  if (stat.guest_id) return guestKey(stat.guest_id);
+  return null;
+}
+
 export function getParticipantDisplayName(participant: MatchParticipant): string {
   return participant.kind === "member"
     ? getProfileDisplayName(participant.profile)
@@ -89,16 +95,6 @@ export function getOpponentTeam(game: MatchGame, team: MatchTeam): MatchTeam | n
   return null;
 }
 
-export function goalScorerKey(goal: MatchGoalRecord): string {
-  return goal.scorer_id ? memberKey(goal.scorer_id) : guestKey(goal.scorer_guest_id ?? "");
-}
-
-export function goalAssistKey(goal: MatchGoalRecord): string | null {
-  if (goal.assist_id) return memberKey(goal.assist_id);
-  if (goal.assist_guest_id) return guestKey(goal.assist_guest_id);
-  return null;
-}
-
 export function gameGkKey(game: MatchGame, team: MatchTeam): string | null {
   if (team === "rev1") {
     if (game.rev1_gk_id) return memberKey(game.rev1_gk_id);
@@ -117,22 +113,18 @@ export function gameGkKey(game: MatchGame, team: MatchTeam): string | null {
   return null;
 }
 
-export function activeGoals(goals: MatchGoalRecord[]): MatchGoalRecord[] {
-  return goals.filter((goal) => !goal.cancelled_at);
-}
-
-export function getGameScore(game: MatchGame, goals: MatchGoalRecord[]): GameScore {
-  const current = activeGoals(goals).filter((goal) => goal.game_id === game.id);
+export function getGameScore(game: MatchGame, playerStats: MatchPlayerGameStat[]): GameScore {
+  const current = playerStats.filter((stat) => stat.game_id === game.id);
   return {
     gameId: game.id,
-    rev1: current.filter((goal) => goal.team === "rev1").length,
-    rev2: current.filter((goal) => goal.team === "rev2").length,
-    rev3: current.filter((goal) => goal.team === "rev3").length,
+    rev1: current.filter((stat) => stat.team === "rev1").reduce((sum, stat) => sum + stat.goals, 0),
+    rev2: current.filter((stat) => stat.team === "rev2").reduce((sum, stat) => sum + stat.goals, 0),
+    rev3: current.filter((stat) => stat.team === "rev3").reduce((sum, stat) => sum + stat.goals, 0),
   };
 }
 
-export function getGameLabel(game: MatchGame, goals: MatchGoalRecord[]): string {
-  const score = getGameScore(game, goals);
+export function getGameLabel(game: MatchGame, playerStats: MatchPlayerGameStat[]): string {
+  const score = getGameScore(game, playerStats);
   const [teamA, teamB] = getGameTeams(game);
   return `第${game.game_no}試合 ${TEAM_LABELS[teamA]} ${score[teamA]} - ${score[teamB]} ${TEAM_LABELS[teamB]}`;
 }
@@ -140,12 +132,8 @@ export function getGameLabel(game: MatchGame, goals: MatchGoalRecord[]): string 
 export function computeSessionStats(
   players: MatchPlayer[],
   games: MatchGame[],
-  goals: MatchGoalRecord[]
+  playerStats: MatchPlayerGameStat[]
 ): SessionPlayerStats[] {
-  const currentGoals = activeGoals(goals);
-  const goalGamesByUser = new Map<string, Set<string>>();
-  const assistGamesByUser = new Map<string, Set<string>>();
-
   const stats = new Map<string, SessionPlayerStats>();
   for (const player of players) {
     stats.set(matchPlayerKey(player), {
@@ -168,30 +156,33 @@ export function computeSessionStats(
     });
   }
 
-  for (const goal of currentGoals) {
-    const scorerKey = goalScorerKey(goal);
-    const scorer = stats.get(scorerKey);
-    if (scorer) {
-      scorer.goals += 1;
-      const set = goalGamesByUser.get(scorerKey) ?? new Set<string>();
-      set.add(goal.game_id);
-      goalGamesByUser.set(scorerKey, set);
-    }
+  const goalGamesByUser = new Map<string, Set<string>>();
+  const assistGamesByUser = new Map<string, Set<string>>();
 
-    const assistKey = goalAssistKey(goal);
-    if (assistKey) {
-      const assister = stats.get(assistKey);
-      if (assister) {
-        assister.assists += 1;
-        const set = assistGamesByUser.get(assistKey) ?? new Set<string>();
-        set.add(goal.game_id);
-        assistGamesByUser.set(assistKey, set);
-      }
+  for (const stat of playerStats) {
+    const key = matchStatPlayerKey(stat);
+    if (!key) continue;
+
+    const row = stats.get(key);
+    if (!row) continue;
+
+    row.goals += stat.goals;
+    row.assists += stat.assists;
+
+    if (stat.goals > 0) {
+      const set = goalGamesByUser.get(key) ?? new Set<string>();
+      set.add(stat.game_id);
+      goalGamesByUser.set(key, set);
+    }
+    if (stat.assists > 0) {
+      const set = assistGamesByUser.get(key) ?? new Set<string>();
+      set.add(stat.game_id);
+      assistGamesByUser.set(key, set);
     }
   }
 
   for (const game of games) {
-    const score = getGameScore(game, goals);
+    const score = getGameScore(game, playerStats);
     const [teamA, teamB] = getGameTeams(game);
     for (const row of stats.values()) {
       const opponentTeam = row.team === teamA ? teamB : row.team === teamB ? teamA : null;
