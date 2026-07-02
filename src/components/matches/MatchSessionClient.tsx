@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Activity, AlertTriangle, BarChart3, CheckCircle2, Minus, Plus, Trash2, Users, X } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, CheckCircle2, Minus, Plus, Smartphone, Tablet, Trash2, Users, X } from "lucide-react";
 import {
   addAssistRecordAction,
   addGoalRecordAction,
@@ -39,6 +39,7 @@ import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import type { Event, MatchGame, MatchPlayerGameStat, MatchSession, MatchTeam, Profile } from "@/lib/types";
 
 type TabId = "teams" | "live" | "stats";
+type DisplayMode = "tablet" | "phone";
 
 type DeleteModal =
   | { kind: "session"; session: MatchSession }
@@ -55,10 +56,12 @@ type MatchSessionClientProps = {
   games: MatchGame[];
   playerStats: MatchPlayerGameStat[];
   initialTab: TabId;
+  initialDisplayMode: DisplayMode;
   error?: string;
 };
 
 const LATEST_GAME_ID = "__latest__";
+const DISPLAY_MODE_COOKIE = "matchDisplayMode";
 
 const THREE_TEAM_GAME_SEQUENCE: [MatchTeam, MatchTeam][] = [
   ["rev1", "rev2"],
@@ -110,6 +113,10 @@ function nextGameTeams(activeTeams: MatchTeam[], games: MatchGame[]): [MatchTeam
   return THREE_TEAM_GAME_SEQUENCE[games.length % THREE_TEAM_GAME_SEQUENCE.length];
 }
 
+function persistDisplayMode(mode: DisplayMode) {
+  document.cookie = `${DISPLAY_MODE_COOKIE}=${mode}; Max-Age=31536000; Path=/; SameSite=Lax`;
+}
+
 export function MatchSessionClient({
   event,
   profile,
@@ -120,12 +127,20 @@ export function MatchSessionClient({
   games,
   playerStats,
   initialTab,
+  initialDisplayMode,
   error,
 }: MatchSessionClientProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
+  const displayMode = initialDisplayMode;
+  const compactMode = displayMode === "phone";
   const [selectedGameId, setSelectedGameId] = useState(games[games.length - 1]?.id ?? "");
   const [deleteModal, setDeleteModal] = useState<DeleteModal>(null);
+
+  useEffect(() => {
+    persistDisplayMode(displayMode);
+  }, [displayMode]);
+
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
@@ -187,34 +202,50 @@ export function MatchSessionClient({
   const visibleTab = activeTab;
   const locked = selectedSession?.status === "confirmed" && profile.role !== "admin";
 
-  function switchSession(sessionId: string) {
+  function buildNavigationParams(sessionId: string | null, tab: TabId, mode: DisplayMode) {
     const params = new URLSearchParams();
-    params.set("session", sessionId);
-    params.set("tab", visibleTab);
-    router.push(`/events/${event.id}/matches?${params.toString()}`);
+    if (sessionId) params.set("session", sessionId);
+    params.set("tab", tab);
+    params.set("view", mode);
+    return params;
+  }
+
+  function pushMatchRoute(params: URLSearchParams) {
+    const query = params.toString();
+    router.push(`/events/${event.id}/matches${query ? `?${query}` : ""}`);
+  }
+
+  function switchSession(sessionId: string) {
+    pushMatchRoute(buildNavigationParams(sessionId, visibleTab, displayMode));
   }
 
   function switchTab(tab: TabId) {
     setActiveTab(tab);
     if (!selectedSession) return;
-    const params = new URLSearchParams();
-    params.set("session", selectedSession.id);
-    params.set("tab", tab);
-    router.push(`/events/${event.id}/matches?${params.toString()}`);
+    pushMatchRoute(buildNavigationParams(selectedSession.id, tab, displayMode));
+    router.refresh();
+  }
+
+  function switchDisplayMode(mode: DisplayMode) {
+    persistDisplayMode(mode);
+    pushMatchRoute(buildNavigationParams(selectedSession?.id ?? null, visibleTab, mode));
     router.refresh();
   }
 
   return (
-    <div className="space-y-4">
+    <div className={`space-y-4 ${compactMode ? "" : "min-w-[48rem]"}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium text-slate-500">{eventDateLabel(event.event_date)}</p>
           <h1 className="truncate text-xl font-bold text-ink">試合結果</h1>
           <p className="mt-1 truncate text-sm text-slate-500">{event.title}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-          <span className="h-2 w-2 rounded-full bg-emerald-500" />
-          同期中
+        <div className="flex shrink-0 items-center gap-2">
+          <DisplayModeToggle value={displayMode} onChange={switchDisplayMode} />
+          <div className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            同期中
+          </div>
         </div>
       </div>
 
@@ -239,7 +270,7 @@ export function MatchSessionClient({
           </span>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+        <div className={`grid gap-2 ${compactMode ? "" : "grid-cols-[1fr_auto_auto]"}`}>
           <select
             className="form-input bg-white"
             value={selectedSession?.id ?? ""}
@@ -255,6 +286,7 @@ export function MatchSessionClient({
           </select>
           <form action={createMatchSessionAction}>
             <input type="hidden" name="event_id" value={event.id} />
+            <input type="hidden" name="display_mode" value={displayMode} />
             <button type="submit" className="btn-secondary h-full w-full whitespace-nowrap bg-white">
               <Plus className="h-4 w-4" />
               セッション追加
@@ -277,6 +309,7 @@ export function MatchSessionClient({
           <p className="text-sm text-slate-500">まだセッションがありません。</p>
           <form action={createMatchSessionAction} className="mt-4">
             <input type="hidden" name="event_id" value={event.id} />
+            <input type="hidden" name="display_mode" value={displayMode} />
             <button type="submit" className="btn-primary">
               <Plus className="h-4 w-4" />
               セッション追加
@@ -316,6 +349,7 @@ export function MatchSessionClient({
               unassigned={unassigned}
               gameCount={games.length}
               locked={locked}
+              compactMode={compactMode}
             />
           ) : null}
 
@@ -333,6 +367,7 @@ export function MatchSessionClient({
               onGameChange={setSelectedGameId}
               onDeleteGame={(game) => setDeleteModal({ kind: "game", game })}
               setupReady={canUseInputTabs}
+              compactMode={compactMode}
             />
           ) : null}
 
@@ -345,6 +380,7 @@ export function MatchSessionClient({
               profile={profile}
               locked={locked}
               activeTeams={activeTeams}
+              compactMode={compactMode}
             />
           ) : null}
 
@@ -389,6 +425,35 @@ function TabButton({
   );
 }
 
+function DisplayModeToggle({
+  value,
+  onChange,
+}: {
+  value: DisplayMode;
+  onChange: (value: DisplayMode) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 rounded-md border border-slate-200 bg-white p-0.5 shadow-sm" aria-label="Display mode">
+      {([
+        { value: "tablet", label: "Tablet", icon: <Tablet className="h-3.5 w-3.5" /> },
+        { value: "phone", label: "Phone", icon: <Smartphone className="h-3.5 w-3.5" /> },
+      ] satisfies { value: DisplayMode; label: string; icon: React.ReactNode }[]).map((item) => (
+        <button
+          key={item.value}
+          type="button"
+          onClick={() => onChange(item.value)}
+          className={`flex h-8 items-center justify-center gap-1 rounded px-2 text-xs font-bold transition ${
+            value === item.value ? "bg-primary text-white" : "text-slate-500 hover:bg-slate-50 hover:text-primary"
+          }`}
+          aria-pressed={value === item.value}
+        >
+          {item.icon}
+          <span className="hidden sm:inline">{item.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
 function TeamsTab({
   attendees,
   session,
@@ -397,6 +462,7 @@ function TeamsTab({
   unassigned,
   gameCount,
   locked,
+  compactMode,
 }: {
   attendees: MatchParticipant[];
   session: MatchSession;
@@ -405,8 +471,14 @@ function TeamsTab({
   unassigned: MatchParticipant[];
   gameCount: number;
   locked: boolean;
+  compactMode: boolean;
 }) {
   const teamCountLocked = locked || gameCount > 0;
+  const teamColumnsClass = compactMode
+    ? "grid-cols-1"
+    : activeTeams.length === 3
+      ? "grid-cols-3"
+      : "grid-cols-2";
 
   return (
     <section className="space-y-3">
@@ -441,7 +513,7 @@ function TeamsTab({
 
       <p className="px-1 text-xs text-slate-500">出席者を{activeTeams.map((team) => TEAM_LABELS[team]).join("/")}に振り分けます。タップで戻せます。</p>
 
-      <div className={`grid gap-3 ${activeTeams.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+      <div className={`grid gap-3 ${teamColumnsClass}`}>
         {activeTeams.map((team) => (
           <TeamColumn key={team} team={team} players={playersByTeam[team] ?? []} sessionId={session.id} locked={locked} />
         ))}
@@ -569,6 +641,7 @@ function LiveTab({
   onGameChange,
   onDeleteGame,
   setupReady,
+  compactMode,
 }: {
   session: MatchSession;
   games: MatchGame[];
@@ -582,6 +655,7 @@ function LiveTab({
   onGameChange: (gameId: string) => void;
   onDeleteGame: (game: MatchGame) => void;
   setupReady: boolean;
+  compactMode: boolean;
 }) {
   const router = useRouter();
   const [addError, setAddError] = useState<string | null>(null);
@@ -601,7 +675,7 @@ function LiveTab({
       ) : null}
 
       <div className="card p-3">
-        <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+        <div className={`mb-3 grid gap-2 ${compactMode ? "" : "grid-cols-[1fr_auto_auto]"}`}>
           <select className="form-input" value={selectedGameId} onChange={(event) => onGameChange(event.target.value)} disabled={games.length === 0}>
             {games.length === 0 ? <option value="">試合なし</option> : null}
             {games.map((game) => (
@@ -625,7 +699,7 @@ function LiveTab({
                 setIsAdding(false);
               }
             }}
-            className={activeTeams.length === 3 ? "grid grid-cols-2 gap-1 sm:min-w-[11rem]" : ""}
+            className={activeTeams.length === 3 ? `grid grid-cols-2 gap-1 ${compactMode ? "" : "min-w-[11rem]"}` : ""}
             key={`${session.id}-${games.length}-${nextTeamA}-${nextTeamB}`}
           >
             <input type="hidden" name="session_id" value={session.id} />
@@ -676,7 +750,7 @@ function LiveTab({
               <span className="pb-4 text-sm font-semibold text-slate-300">対</span>
               <ScoreBlock team={selectedGameTeams[1]} value={score[selectedGameTeams[1]]} />
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className={`grid gap-2 ${compactMode ? "grid-cols-1" : "grid-cols-2"}`}>
               {selectedGameTeams.map((team) => (
                 <GkSelect
                   key={`${selectedGame.id}-${team}-${gameGkKey(selectedGame, team) ?? "none"}`}
@@ -701,7 +775,7 @@ function LiveTab({
       ) : null}
 
       {selectedGame ? (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className={`grid gap-3 ${compactMode ? "" : "grid-cols-2"}`}>
           {selectedGameTeams.map((team) => (
             <PlayerStatPanel
               key={team}
@@ -710,6 +784,7 @@ function LiveTab({
               players={playersByTeam[team] ?? []}
               playerStats={activeSelectedGameStats}
               disabled={statInputDisabled}
+              compactMode={compactMode}
             />
           ))}
         </div>
@@ -721,7 +796,7 @@ function ScoreBlock({ team, value }: { team: MatchTeam; value: number }) {
   return (
     <div className="text-center">
       <div className={`text-xs font-bold ${TEAM_STYLES[team].text}`}>{TEAM_LABELS[team]}</div>
-      <div className="border-b border-slate-300 py-1 text-4xl font-bold text-ink">{value}</div>
+      <div className="border-b border-slate-300 py-1 text-5xl font-bold text-ink">{value}</div>
     </div>
   );
 }
@@ -777,16 +852,22 @@ function PlayerStatPanel({
   players,
   playerStats,
   disabled,
+  compactMode,
 }: {
   game: MatchGame;
   team: MatchTeam;
   players: MatchPlayer[];
   playerStats: MatchPlayerGameStat[];
   disabled: boolean;
+  compactMode: boolean;
 }) {
   const teamStats = playerStats.filter((stat) => stat.team === team);
   const totalGoals = teamStats.reduce((sum, stat) => sum + stat.goals, 0);
   const totalAssists = teamStats.reduce((sum, stat) => sum + stat.assists, 0);
+  const statColumnsClass = compactMode
+    ? "grid-cols-[minmax(0,1fr)_6.5rem_6.5rem]"
+    : "grid-cols-[minmax(0,1fr)_7.5rem_7.5rem]";
+
 
   return (
     <div className="card overflow-hidden">
@@ -797,7 +878,7 @@ function PlayerStatPanel({
           <span>A {totalAssists}</span>
         </div>
       </div>
-      <div className="grid grid-cols-[minmax(0,1fr)_6.5rem_6.5rem] items-center border-b border-slate-200 bg-slate-50 px-2 py-2 text-[10px] font-bold text-slate-500">
+      <div className={`grid ${statColumnsClass} items-center border-b border-slate-200 bg-slate-50 px-2 py-2 text-[10px] font-bold text-slate-500`}>
         <span className="px-1">名前</span>
         <span className="text-center">GOAL</span>
         <span className="text-center">ASSIST</span>
@@ -812,7 +893,7 @@ function PlayerStatPanel({
             const assistsForPlayer = playerStatValue(teamStats, key, "assist");
 
             return (
-              <div className="grid min-h-14 grid-cols-[minmax(0,1fr)_6.5rem_6.5rem] items-center gap-1 px-2 py-2" key={key}>
+              <div className={`grid min-h-16 ${statColumnsClass} items-center gap-1 px-2 py-2`} key={key}>
                 <div className="min-w-0 px-1">
                   <div className="flex items-center gap-2">
                     <span className="w-7 shrink-0 text-xs text-slate-400">{getParticipantUniformNo(player.participant) ?? "-"}</span>
@@ -850,7 +931,7 @@ function PlayerStatControls({
   const label = stat === "goal" ? "GOAL" : "ASSIST";
 
   return (
-    <div className="grid grid-cols-[1.5rem_2.25rem_1.5rem] items-center justify-center gap-1">
+    <div className="grid grid-cols-[2rem_2.25rem_2rem] items-center justify-center gap-1">
       <form action={cancelLatestPlayerStatRecordAction}>
         <input type="hidden" name="game_id" value={game.id} />
         <input type="hidden" name="team" value={team} />
@@ -858,12 +939,12 @@ function PlayerStatControls({
         <input type="hidden" name="stat" value={stat} />
         <button
           type="submit"
-          className="flex h-6 w-6 items-center justify-center rounded-full border border-transparent bg-transparent text-slate-300 transition hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-25"
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-transparent bg-transparent text-slate-300 transition hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-25"
           disabled={disabled || value === 0}
           title={`${label}を1つ戻す`}
           aria-label={`${label}を1つ戻す`}
         >
-          <Minus className="h-3.5 w-3.5" />
+          <Minus className="h-4 w-4" />
         </button>
       </form>
       <span className={`text-center text-xl font-black tabular-nums ${value > 0 ? "text-ink" : "text-slate-300"}`}>{value}</span>
@@ -873,12 +954,12 @@ function PlayerStatControls({
         <input type="hidden" name={inputName} value={playerKey} />
         <button
           type="submit"
-          className={`flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-25 ${TEAM_STYLES[team].text}`}
+          className={`flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-25 ${TEAM_STYLES[team].text}`}
           disabled={disabled}
           title={`${label}を1つ追加`}
           aria-label={`${label}を1つ追加`}
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className="h-4 w-4" />
         </button>
       </form>
     </div>
@@ -968,6 +1049,7 @@ function StatsTab({
   profile,
   locked,
   activeTeams,
+  compactMode,
 }: {
   session: MatchSession;
   games: MatchGame[];
@@ -976,6 +1058,7 @@ function StatsTab({
   profile: Profile;
   locked: boolean;
   activeTeams: MatchTeam[];
+  compactMode: boolean;
 }) {
   const totals = Object.fromEntries(
     activeTeams.map((team) => [team, games.reduce((sum, game) => sum + getGameScore(game, playerStats)[team], 0)])
@@ -996,9 +1079,11 @@ function StatsTab({
         ))}
       </div>
 
-      {activeTeams.map((team) => (
-        <StatsTeamSection key={team} team={team} stats={stats.filter((row) => row.team === team)} />
-      ))}
+      <div className={`grid gap-3 ${compactMode ? "" : "grid-cols-2"}`}>
+        {activeTeams.map((team) => (
+          <StatsTeamSection key={team} team={team} stats={stats.filter((row) => row.team === team)} />
+        ))}
+      </div>
 
       {profile.role === "admin" ? (
         session.status === "confirmed" ? (

@@ -7,14 +7,18 @@ import type { Profile } from "@/lib/types";
 type AppShellProps = {
   profile: Profile;
   active: "events" | "seasons" | "admin" | "mvp" | "feedback";
+  width?: "default" | "wide" | "compact";
   children: React.ReactNode;
 };
 
-export function AppShell({ profile, active, children }: AppShellProps) {
+export function AppShell({ profile, active, width = "default", children }: AppShellProps) {
+  const shellWidth =
+    width === "wide" ? "max-w-6xl" : width === "compact" ? "max-w-md" : "max-w-3xl";
+
   return (
     <div className="min-h-screen pb-20">
       <header className="sticky top-0 z-20 border-b border-emerald-900/20 bg-primary text-white shadow-sm shadow-emerald-950/10">
-        <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4">
+        <div className={`mx-auto flex h-14 ${shellWidth} items-center justify-between px-4`}>
           <Link href="/events" className="text-lg font-bold tracking-wide">
             REVISION
           </Link>
@@ -42,10 +46,10 @@ export function AppShell({ profile, active, children }: AppShellProps) {
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-4 py-5">{children}</main>
+      <main className={`mx-auto ${shellWidth} overflow-x-auto px-4 py-5`}>{children}</main>
 
       <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 shadow-[0_-8px_24px_rgba(15,23,42,0.06)] backdrop-blur">
-        <div className={`mx-auto grid max-w-3xl ${profile.role === "admin" ? "grid-cols-4" : "grid-cols-3"}`}>
+        <div className={`mx-auto grid ${shellWidth} ${profile.role === "admin" ? "grid-cols-4" : "grid-cols-3"}`}>
           <NavItem href="/events" label="イベント" active={active === "events" || active === "mvp"}>
             <CalendarDays className="h-5 w-5" />
           </NavItem>

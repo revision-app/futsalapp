@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { AppShell } from "@/components/AppShell";
 import { MatchSessionClient } from "@/components/matches/MatchSessionClient";
 import { requireUser } from "@/lib/auth";
@@ -16,20 +17,28 @@ import type {
 
 type MatchResultsPageProps = {
   params: Promise<{ eventId: string }>;
-  searchParams?: Promise<{ session?: string; tab?: string; error?: string }>;
+  searchParams?: Promise<{ session?: string; tab?: string; view?: string; error?: string }>;
 };
 
 type AttendanceWithProfile = Attendance & { profiles: Profile | null };
 type PlayerWithParticipant = MatchSessionPlayer & { profiles: Profile | null; event_guests: EventGuest | null };
+type DisplayMode = "tablet" | "phone";
 
 function normalizeTab(value?: string): "teams" | "live" | "stats" {
   if (value === "live" || value === "stats") return value;
   return "teams";
 }
 
+function normalizeView(value?: string | null): DisplayMode | null {
+  if (value === "tablet" || value === "phone") return value;
+  return null;
+}
+
 export default async function MatchResultsPage({ params, searchParams }: MatchResultsPageProps) {
   const { eventId } = await params;
   const query = (await searchParams) ?? {};
+  const cookieStore = await cookies();
+  const displayMode = normalizeView(query.view) ?? normalizeView(cookieStore.get("matchDisplayMode")?.value) ?? "phone";
   const profile = await requireUser();
   const admin = createAdminClient();
 
@@ -54,7 +63,7 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
 
   if (!event) {
     return (
-      <AppShell profile={profile} active="events">
+      <AppShell profile={profile} active="events" width={displayMode === "phone" ? "compact" : "wide"}>
         <div className="card p-6 text-sm text-slate-500">イベントが見つかりません。</div>
       </AppShell>
     );
@@ -134,7 +143,7 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
   attendees.sort(compareParticipants);
 
   return (
-    <AppShell profile={profile} active="events">
+    <AppShell profile={profile} active="events" width={displayMode === "phone" ? "compact" : "wide"}>
       <MatchSessionClient
         event={event as Event}
         profile={profile}
@@ -145,6 +154,7 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
         games={games}
         playerStats={playerStats}
         initialTab={normalizeTab(query.tab)}
+        initialDisplayMode={displayMode}
         error={query.error}
       />
     </AppShell>

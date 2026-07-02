@@ -94,10 +94,11 @@ function participantColumns(participant: ParticipantRef): { user_id: string | nu
     : { user_id: null, guest_id: participant.id };
 }
 
-function matchesPath(eventId: string, sessionId?: string, tab?: string): string {
+function matchesPath(eventId: string, sessionId?: string, tab?: string, displayMode?: string): string {
   const params = new URLSearchParams();
   if (sessionId) params.set("session", sessionId);
   if (tab) params.set("tab", tab);
+  if (displayMode === "tablet" || displayMode === "phone") params.set("view", displayMode);
   const query = params.toString();
   return `/events/${eventId}/matches${query ? `?${query}` : ""}`;
 }
@@ -283,6 +284,7 @@ async function ensureGameTeamParticipates(gameId: string, team: MatchTeam): Prom
 export async function createMatchSessionAction(formData: FormData) {
   const eventId = getString(formData, "event_id");
   const teamCount = parseTeamCount(getString(formData, "team_count"));
+  const displayMode = getString(formData, "display_mode");
   const currentUser = await requireMatchEditor(eventId);
   const admin = createAdminClient();
 
@@ -310,7 +312,7 @@ export async function createMatchSessionAction(formData: FormData) {
   if (error || !data) throw new Error(error?.message ?? "Failed to create session.");
 
   revalidatePath(matchesPath(eventId));
-  redirect(matchesPath(eventId, data.id, "teams"));
+  redirect(matchesPath(eventId, data.id, "teams", displayMode));
 }
 
 export async function updateMatchSessionTeamCountAction(formData: FormData) {
