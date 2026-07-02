@@ -28,9 +28,6 @@ export async function submitMvpVoteAction(formData: FormData) {
   const admin = createAdminClient();
   const selections = [3, 2, 1].flatMap((points) => {
     const voteeIds = getStrings(formData, `votee_${points}`);
-    if (voteeIds.length > 1) {
-      redirectWithMvpError(eventId, "同じポイントに複数人を投票することはできません。");
-    }
 
     return voteeIds.map((voteeId) => ({
       points,

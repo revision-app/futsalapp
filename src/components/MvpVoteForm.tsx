@@ -13,7 +13,7 @@ type MvpVoteCandidate = {
 type MvpVoteFormProps = {
   eventId: string;
   candidates: MvpVoteCandidate[];
-  initialSelections: Record<MvpPoint, string | null>;
+  initialSelections: Record<MvpPoint, string[]>;
 };
 
 const MVP_POINT_OPTIONS = [
@@ -23,43 +23,42 @@ const MVP_POINT_OPTIONS = [
 ] as const;
 
 function getBlockingReason(
-  selections: Record<MvpPoint, string | null>,
+  selections: Record<MvpPoint, string[]>,
   points: MvpPoint,
   candidateId: string
-): "point" | "candidate" | null {
-  if (selections[points] && selections[points] !== candidateId) return "point";
-
+): "candidate" | null {
   const isCandidateSelectedElsewhere = MVP_POINT_OPTIONS.some(
-    (option) => option.points !== points && selections[option.points] === candidateId
+    (option) => option.points !== points && selections[option.points].includes(candidateId)
   );
   return isCandidateSelectedElsewhere ? "candidate" : null;
 }
 
 export function MvpVoteForm({ eventId, candidates, initialSelections }: MvpVoteFormProps) {
-  const [selections, setSelections] = useState(initialSelections);
-  const selectedCount = useMemo(() => Object.values(selections).filter(Boolean).length, [selections]);
+  const [selections, setSelections] = useState<Record<MvpPoint, string[]>>(initialSelections);
+  const selectedCount = useMemo(() => Object.values(selections).reduce((count, voteeIds) => count + voteeIds.length, 0), [selections]);
 
   function toggleSelection(points: MvpPoint, candidateId: string) {
     setSelections((current) => {
-      if (current[points] === candidateId) {
-        return { ...current, [points]: null };
+      const pointSelections = current[points];
+      if (pointSelections.includes(candidateId)) {
+        return { ...current, [points]: pointSelections.filter((id) => id !== candidateId) };
       }
 
       if (getBlockingReason(current, points, candidateId)) {
         return current;
       }
 
-      return { ...current, [points]: candidateId };
+      return { ...current, [points]: [...pointSelections, candidateId] };
     });
   }
 
   return (
     <form action={submitMvpVoteAction} className="card overflow-hidden">
       <input type="hidden" name="event_id" value={eventId} />
-      {MVP_POINT_OPTIONS.map((option) =>
-        selections[option.points] ? (
-          <input key={option.points} type="hidden" name={`votee_${option.points}`} value={selections[option.points] ?? ""} />
-        ) : null
+      {MVP_POINT_OPTIONS.flatMap((option) =>
+        selections[option.points].map((voteeId) => (
+          <input key={`${option.points}-${voteeId}`} type="hidden" name={`votee_${option.points}`} value={voteeId} />
+        ))
       )}
 
       {candidates.length === 0 ? (
@@ -94,7 +93,7 @@ export function MvpVoteForm({ eventId, candidates, initialSelections }: MvpVoteF
                     <span className="block truncate">{candidate.name}</span>
                   </th>
                   {MVP_POINT_OPTIONS.map((option) => {
-                    const isSelected = selections[option.points] === candidate.id;
+                    const isSelected = selections[option.points].includes(candidate.id);
                     const blockingReason = getBlockingReason(selections, option.points, candidate.id);
                     const isDisabled = Boolean(blockingReason);
 
@@ -107,11 +106,9 @@ export function MvpVoteForm({ eventId, candidates, initialSelections }: MvpVoteF
                           aria-pressed={isSelected}
                           aria-label={`${candidate.name}に${option.label}を投票`}
                           title={
-                            blockingReason === "point"
-                              ? `${option.label}は選択済みです`
-                              : blockingReason === "candidate"
-                                ? `${candidate.name}は選択済みです`
-                                : undefined
+                            blockingReason === "candidate"
+                              ? `${candidate.name}は選択済みです`
+                              : undefined
                           }
                           className={[
                             "mx-auto flex h-8 w-8 items-center justify-center rounded-md border text-base font-semibold leading-none transition sm:h-10 sm:w-10 sm:text-lg",

@@ -66,10 +66,10 @@ export default async function MvpVotePage({ params, searchParams }: MvpVotePageP
       ? await supabase.from("mvp_votes").select("voter_id").eq("event_id", eventId)
       : { data: [] as Pick<MvpVote, "voter_id">[] };
   const canVote = myAttendance?.status === "attending";
-  const initialSelections: Record<3 | 2 | 1, string | null> = { 3: null, 2: null, 1: null };
+  const initialSelections: Record<3 | 2 | 1, string[]> = { 3: [], 2: [], 1: [] };
   for (const vote of (votes ?? []) as MvpVote[]) {
-    if ((vote.points === 3 || vote.points === 2 || vote.points === 1) && !initialSelections[vote.points]) {
-      initialSelections[vote.points] = vote.votee_id;
+    if ((vote.points === 3 || vote.points === 2 || vote.points === 1) && !initialSelections[vote.points].includes(vote.votee_id)) {
+      initialSelections[vote.points].push(vote.votee_id);
     }
   }
   const candidates = attendeeRows.map((user) => ({
