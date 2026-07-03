@@ -29,7 +29,7 @@ export default async function EventsPage({ searchParams }: EventsPageProps) {
   let eventsQuery = supabase
     .from("events")
     .select("*, seasons(name)")
-    .order("event_date", { ascending: true });
+    .order("event_date", { ascending: false });
 
   if (selectedSeason) {
     eventsQuery = eventsQuery.eq("season_id", selectedSeason);
@@ -88,13 +88,19 @@ export default async function EventsPage({ searchParams }: EventsPageProps) {
         {eventRows.length === 0 ? (
           <div className="card p-6 text-center text-sm text-slate-500">イベントがありません。</div>
         ) : (
-          eventRows.map((event) => {
+          eventRows.map((event, index) => {
             const status = attendanceMap.get(event.id) ?? "pending";
+            const isNewest = index === 0;
             return (
               <article className="card p-4" key={event.id}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="mb-2 flex flex-wrap items-center gap-2">
+                      {isNewest ? (
+                        <span className="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-700">
+                          NEW
+                        </span>
+                      ) : null}
                       <EventTypeBadge type={event.event_type} />
                     </div>
                     <Link href={`/events/${event.id}`} className="block truncate text-lg font-bold text-ink hover:text-primary">
