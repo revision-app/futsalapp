@@ -14,6 +14,9 @@ type MvpVoteFormProps = {
   eventId: string;
   candidates: MvpVoteCandidate[];
   initialSelections: Record<MvpPoint, string[]>;
+  voterId?: string;
+  title?: string;
+  adminEdit?: boolean;
 };
 
 const MVP_POINT_OPTIONS = [
@@ -33,7 +36,7 @@ function getBlockingReason(
   return isCandidateSelectedElsewhere ? "candidate" : null;
 }
 
-export function MvpVoteForm({ eventId, candidates, initialSelections }: MvpVoteFormProps) {
+export function MvpVoteForm({ eventId, candidates, initialSelections, voterId, title, adminEdit = false }: MvpVoteFormProps) {
   const [selections, setSelections] = useState<Record<MvpPoint, string[]>>(initialSelections);
   const selectedCount = useMemo(() => Object.values(selections).reduce((count, voteeIds) => count + voteeIds.length, 0), [selections]);
 
@@ -55,6 +58,9 @@ export function MvpVoteForm({ eventId, candidates, initialSelections }: MvpVoteF
   return (
     <form action={submitMvpVoteAction} className="card overflow-hidden">
       <input type="hidden" name="event_id" value={eventId} />
+      {voterId ? <input type="hidden" name="voter_id" value={voterId} /> : null}
+      {adminEdit ? <input type="hidden" name="admin_edit" value="1" /> : null}
+      {title ? <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-ink">{title}</div> : null}
       {MVP_POINT_OPTIONS.flatMap((option) =>
         selections[option.points].map((voteeId) => (
           <input key={`${option.points}-${voteeId}`} type="hidden" name={`votee_${option.points}`} value={voteeId} />

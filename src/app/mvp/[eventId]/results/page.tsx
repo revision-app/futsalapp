@@ -39,22 +39,6 @@ export default async function MvpResultsPage({ params, searchParams }: MvpResult
   }
 
   const eventRow = event as Event;
-  if (!eventRow.mvp_voting_closed_at) {
-    return (
-      <AppShell profile={profile} active="mvp">
-        <div className="mb-4">
-          <Notice error={query?.error} message={query?.message} />
-        </div>
-        <div className="card p-6 text-sm text-slate-600">
-          MVP投票の締切前のため、結果はまだ表示できません。
-          <Link href={`/mvp/${eventId}`} className="btn-primary mt-4 w-full">
-            投票締切へ
-          </Link>
-        </div>
-      </AppShell>
-    );
-  }
-
   const totals = new Map<
     string,
     { user: Profile; total: number; pt3: number; pt2: number; pt1: number }
