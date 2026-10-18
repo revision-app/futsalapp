@@ -93,8 +93,6 @@ export async function GET(_request: Request, context: RouteContext) {
   const pointsRanking = rankBy(stats, (row) => row.points);
   const goalDiffRanking = rankBy(stats, (row) => row.teamGoalsFor - row.teamGoalsAgainst);
   const averagePointsRanking = rankBy(stats, (row) => (row.games > 0 ? Number(statAverage(row.points, row.games, 3)) : 0));
-  const goalPointRanking = rankBy(stats, (row) => row.goalGames.size);
-  const assistPointRanking = rankBy(stats, (row) => row.assistGames.size);
   const attendanceRanking = rankBy(stats, (row) => row.attendanceDays);
 
   const rows: string[][] = [
@@ -137,16 +135,6 @@ export async function GET(_request: Request, context: RouteContext) {
       averagePointsRanking.map((row) => [String(row.rank), row.name, row.value])
     ),
     ...sectionRows(
-      "Gぽいん",
-      ["順位", "名前", "Gぽいん"],
-      goalPointRanking.map((row) => [String(row.rank), row.name, row.value])
-    ),
-    ...sectionRows(
-      "Aぽいん",
-      ["順位", "名前", "Aぽいん"],
-      assistPointRanking.map((row) => [String(row.rank), row.name, row.value])
-    ),
-    ...sectionRows(
       "一番参加したで賞",
       ["順位", "名前", "参加日数"],
       attendanceRanking.map((row) => [String(row.rank), row.name, row.value])
@@ -164,8 +152,6 @@ export async function GET(_request: Request, context: RouteContext) {
         ["勝ち点", topName(pointsRanking, 1)],
         ["得失点", topName(goalDiffRanking, 1)],
         ["平均勝ち点", topName(averagePointsRanking, 1)],
-        ["Gぽいん", allTopNames(goalPointRanking, 1)],
-        ["Aぽいん", allTopNames(assistPointRanking, 1)],
         ["一番参加したで賞", allTopNames(attendanceRanking, 1)],
         ["50代でよく頑張ってるで賞", ""],
       ]
