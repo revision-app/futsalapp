@@ -1,50 +1,45 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Activity, AlertTriangle, BarChart3, CheckCircle2, Minus, Plus, Smartphone, Tablet, Trash2, Users, X } from "lucide-react";
+import { AlertTriangle, BarChart3, CheckCircle2, ClipboardList, Plus, Smartphone, Tablet, Trash2, Users, X } from "lucide-react";
 import {
-  addAssistRecordAction,
-  addGoalRecordAction,
-  addMatchGameAction,
   assignSessionPlayerAction,
-  cancelLatestPlayerStatRecordAction,
   confirmMatchSessionAction,
   createMatchSessionAction,
-  deleteMatchGameAction,
   deleteMatchSessionAction,
   reopenMatchSessionAction,
   updateMatchSessionTeamCountAction,
-  updateMatchGameGkAction,
 } from "@/lib/actions/matches";
+import { MatchSheetEditor } from "@/components/matches/MatchSheetEditor";
+import { TEAM_STYLES } from "@/components/matches/teamStyles";
 import {
+  checkSessionSheet,
   computeSessionStats,
   compareParticipants,
+  describeSheetProblems,
   formatRatio,
   gameGkKey,
-  getGameLabel,
   getGameScore,
   getGameTeams,
+  getOpponentOwnGoals,
   getParticipantDisplayName,
   getParticipantUniformNo,
   getSessionTeams,
-  matchStatPlayerKey,
+  hasGameScore,
+  sheetCheckInputFromRows,
   TEAM_LABELS,
   type MatchPlayer,
   type MatchParticipant,
   matchPlayerKey,
   participantKey,
 } from "@/lib/matchStats";
-import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
-import type { Event, MatchGame, MatchPlayerGameStat, MatchSession, MatchTeam, Profile } from "@/lib/types";
+import type { Event, MatchGame, MatchSession, MatchTeam, Profile } from "@/lib/types";
 
-type TabId = "teams" | "live" | "stats";
+type TabId = "teams" | "sheet" | "stats";
 type DisplayMode = "tablet" | "phone";
 
-type DeleteModal =
-  | { kind: "session"; session: MatchSession }
-  | { kind: "game"; game: MatchGame }
-  | null;
+type DeleteModal = { kind: "session"; session: MatchSession } | null;
 
 type MatchSessionClientProps = {
   event: Event;
@@ -54,47 +49,14 @@ type MatchSessionClientProps = {
   selectedSession: MatchSession | null;
   players: MatchPlayer[];
   games: MatchGame[];
-  playerStats: MatchPlayerGameStat[];
+  members: MatchParticipant[];
   initialTab: TabId;
   initialDisplayMode: DisplayMode;
   error?: string;
 };
 
-const LATEST_GAME_ID = "__latest__";
 const DISPLAY_MODE_COOKIE = "matchDisplayMode";
-
-const THREE_TEAM_GAME_SEQUENCE: [MatchTeam, MatchTeam][] = [
-  ["rev1", "rev2"],
-  ["rev2", "rev3"],
-  ["rev3", "rev1"],
-];
-
-const TEAM_STYLES: Record<MatchTeam, { chip: string; text: string; soft: string; button: string; border: string; submit: string }> = {
-  rev1: {
-    chip: "border-amber-300 bg-amber-50 text-amber-950",
-    text: "text-amber-800",
-    soft: "bg-amber-50",
-    button: "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100",
-    border: "border-l-amber-400",
-    submit: "bg-amber-500 hover:bg-amber-600",
-  },
-  rev2: {
-    chip: "border-rose-300 bg-rose-50 text-rose-950",
-    text: "text-rose-800",
-    soft: "bg-rose-50",
-    button: "border-rose-300 bg-rose-50 text-rose-900 hover:bg-rose-100",
-    border: "border-l-rose-400",
-    submit: "bg-rose-500 hover:bg-rose-600",
-  },
-  rev3: {
-    chip: "border-sky-300 bg-sky-50 text-sky-950",
-    text: "text-sky-800",
-    soft: "bg-sky-50",
-    button: "border-sky-300 bg-sky-50 text-sky-900 hover:bg-sky-100",
-    border: "border-l-sky-400",
-    submit: "bg-sky-500 hover:bg-sky-600",
-  },
-};
+const UNSAVED_MESSAGE = "転記画面に保存していない変更があります。移動すると入力した内容は消えます。よろしいですか？";
 
 function eventDateLabel(value: string): string {
   return new Intl.DateTimeFormat("ja-JP", {
@@ -108,9 +70,14 @@ function teamPlayers(players: MatchPlayer[], team: MatchTeam): MatchPlayer[] {
   return players.filter((player) => player.team === team).sort((a, b) => compareParticipants(a.participant, b.participant));
 }
 
-function nextGameTeams(activeTeams: MatchTeam[], games: MatchGame[]): [MatchTeam, MatchTeam] {
-  if (activeTeams.length !== 3) return [activeTeams[0] ?? "rev1", activeTeams[1] ?? "rev2"];
-  return THREE_TEAM_GAME_SEQUENCE[games.length % THREE_TEAM_GAME_SEQUENCE.length];
+function updatedAtLabel(value: string): string {
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function persistDisplayMode(mode: DisplayMode) {
@@ -125,7 +92,7 @@ export function MatchSessionClient({
   selectedSession,
   players,
   games,
-  playerStats,
+  members,
   initialTab,
   initialDisplayMode,
   error,
@@ -134,62 +101,16 @@ export function MatchSessionClient({
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const displayMode = initialDisplayMode;
   const compactMode = displayMode === "phone";
-  const [selectedGameId, setSelectedGameId] = useState(games[games.length - 1]?.id ?? "");
   const [deleteModal, setDeleteModal] = useState<DeleteModal>(null);
+  const [sheetDirty, setSheetDirty] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     persistDisplayMode(displayMode);
   }, [displayMode]);
 
-
-  useEffect(() => {
-    const supabase = createBrowserSupabaseClient();
-    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-    let channel: ReturnType<typeof supabase.channel> | null = null;
-
-    const refreshSoon = () => {
-      if (refreshTimer) clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => router.refresh(), 150);
-    };
-
-    async function setup() {
-      const { data } = await supabase.auth.getSession();
-      if (data.session) {
-        supabase.realtime.setAuth(data.session.access_token);
-      }
-
-      const channelName = `match-results-${event.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      channel = supabase
-        .channel(channelName)
-        .on("postgres_changes", { event: "*", schema: "public", table: "event_guests" }, refreshSoon)
-        .on("postgres_changes", { event: "*", schema: "public", table: "match_sessions" }, refreshSoon)
-        .on("postgres_changes", { event: "*", schema: "public", table: "match_session_players" }, refreshSoon)
-        .on("postgres_changes", { event: "*", schema: "public", table: "match_games" }, refreshSoon)
-        .on("postgres_changes", { event: "*", schema: "public", table: "match_player_game_stats" }, refreshSoon)
-        .subscribe();
-    }
-
-    setup();
-
-    return () => {
-      if (refreshTimer) clearTimeout(refreshTimer);
-      if (channel) supabase.removeChannel(channel);
-    };
-  }, [event.id, router]);
-
   const assignmentByKey = useMemo(() => new Map(players.map((player) => [matchPlayerKey(player), player.team])), [players]);
-  const latestGameId = games[games.length - 1]?.id ?? "";
-  const effectiveSelectedGameId =
-    selectedGameId !== LATEST_GAME_ID && games.some((game) => game.id === selectedGameId)
-      ? selectedGameId
-      : latestGameId;
-  const selectedGame = games.find((game) => game.id === effectiveSelectedGameId) ?? games[0] ?? null;
-  const selectedGameStats = selectedGame
-    ? playerStats
-        .filter((stat) => stat.game_id === selectedGame.id)
-        .sort((a, b) => a.team.localeCompare(b.team) || new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-    : [];
-  const stats = useMemo(() => computeSessionStats(players, games, playerStats), [players, games, playerStats]);
+  const stats = useMemo(() => computeSessionStats(players, games), [players, games]);
   const activeTeams = selectedSession ? getSessionTeams(selectedSession) : (["rev1", "rev2"] satisfies MatchTeam[]);
   const playersByTeam = useMemo(
     () => Object.fromEntries(activeTeams.map((team) => [team, teamPlayers(players, team)])) as Record<MatchTeam, MatchPlayer[]>,
@@ -198,9 +119,21 @@ export function MatchSessionClient({
   const unassigned = attendees
     .filter((participant) => !assignmentByKey.has(participantKey(participant)))
     .sort(compareParticipants);
-  const canUseInputTabs = unassigned.length === 0 && activeTeams.every((team) => (playersByTeam[team] ?? []).length > 0);
   const visibleTab = activeTab;
   const locked = selectedSession?.status === "confirmed" && profile.role !== "admin";
+  const lastUpdatedLabel = useMemo(() => {
+    if (!selectedSession?.updated_by) return null;
+    const editor = members.find((member) => member.id === selectedSession.updated_by);
+    return `${editor ? getParticipantDisplayName(editor) : "-"}（${updatedAtLabel(selectedSession.updated_at)}）`;
+  }, [members, selectedSession]);
+  const handleSheetDirtyChange = useCallback((dirty: boolean) => setSheetDirty(dirty), []);
+
+  function confirmLeaveSheet(): boolean {
+    if (!sheetDirty) return true;
+    if (!window.confirm(UNSAVED_MESSAGE)) return false;
+    setSheetDirty(false);
+    return true;
+  }
 
   function buildNavigationParams(sessionId: string | null, tab: TabId, mode: DisplayMode) {
     const params = new URLSearchParams();
@@ -216,10 +149,14 @@ export function MatchSessionClient({
   }
 
   function switchSession(sessionId: string) {
+    if (!confirmLeaveSheet()) return;
+    setNotice(null);
     pushMatchRoute(buildNavigationParams(sessionId, visibleTab, displayMode));
   }
 
   function switchTab(tab: TabId) {
+    if (tab !== visibleTab && !confirmLeaveSheet()) return;
+    setNotice(null);
     setActiveTab(tab);
     if (!selectedSession) return;
     pushMatchRoute(buildNavigationParams(selectedSession.id, tab, displayMode));
@@ -227,6 +164,7 @@ export function MatchSessionClient({
   }
 
   function switchDisplayMode(mode: DisplayMode) {
+    if (!confirmLeaveSheet()) return;
     persistDisplayMode(mode);
     pushMatchRoute(buildNavigationParams(selectedSession?.id ?? null, visibleTab, mode));
     router.refresh();
@@ -242,14 +180,11 @@ export function MatchSessionClient({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <DisplayModeToggle value={displayMode} onChange={switchDisplayMode} />
-          <div className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            同期中
-          </div>
         </div>
       </div>
 
       {error ? <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
+      {notice ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{notice}</div> : null}
 
       <div className="rounded-lg border border-primary/25 bg-primary-light/30 p-4 shadow-sm">
         <div className="mb-3 flex items-start justify-between gap-3">
@@ -266,7 +201,7 @@ export function MatchSessionClient({
                 : "bg-white text-primary"
             }`}
           >
-            {selectedSession?.status === "confirmed" ? "確定済み" : selectedSession ? "試合中" : "未作成"}
+            {selectedSession?.status === "confirmed" ? "確定済み" : selectedSession ? "下書き" : "未作成"}
           </span>
         </div>
 
@@ -280,7 +215,7 @@ export function MatchSessionClient({
             {sessions.length === 0 ? <option value="">セッションなし</option> : null}
             {sessions.map((session) => (
               <option value={session.id} key={session.id}>
-                セッション{session.session_no}・{session.status === "confirmed" ? "確定済み" : "試合中"}
+                セッション{session.session_no}・{session.status === "confirmed" ? "確定済み" : "下書き"}
               </option>
             ))}
           </select>
@@ -321,10 +256,10 @@ export function MatchSessionClient({
           <div className="grid grid-cols-3 rounded-lg border border-slate-200 bg-white p-1">
             <TabButton active={visibleTab === "teams"} onClick={() => switchTab("teams")} icon={<Users className="h-4 w-4" />} label="編成" />
             <TabButton
-              active={visibleTab === "live"}
-              onClick={() => switchTab("live")}
-              icon={<Activity className="h-4 w-4" />}
-              label="ライブ"
+              active={visibleTab === "sheet"}
+              onClick={() => switchTab("sheet")}
+              icon={<ClipboardList className="h-4 w-4" />}
+              label="転記"
             />
             <TabButton
               active={visibleTab === "stats"}
@@ -347,27 +282,34 @@ export function MatchSessionClient({
               activeTeams={activeTeams}
               playersByTeam={playersByTeam}
               unassigned={unassigned}
-              gameCount={games.length}
+              games={games}
               locked={locked}
               compactMode={compactMode}
             />
           ) : null}
 
-          {visibleTab === "live" ? (
-            <LiveTab
+          {visibleTab === "sheet" ? (
+            <MatchSheetEditor
+              key={`${selectedSession.id}-${selectedSession.revision}`}
               session={selectedSession}
+              teams={activeTeams}
+              players={players}
               games={games}
-              playerStats={playerStats}
-              selectedGame={selectedGame}
-              selectedGameStats={selectedGameStats}
-              activeTeams={activeTeams}
-              playersByTeam={playersByTeam}
+              attendees={attendees}
+              members={members}
               locked={locked}
-              selectedGameId={effectiveSelectedGameId}
-              onGameChange={setSelectedGameId}
-              onDeleteGame={(game) => setDeleteModal({ kind: "game", game })}
-              setupReady={canUseInputTabs}
               compactMode={compactMode}
+              lastUpdatedLabel={lastUpdatedLabel}
+              onDirtyChange={handleSheetDirtyChange}
+              onSaved={() => {
+                setNotice("一時保存しました。");
+                setSheetDirty(false);
+                router.refresh();
+              }}
+              onReload={() => {
+                setSheetDirty(false);
+                router.refresh();
+              }}
             />
           ) : null}
 
@@ -375,10 +317,9 @@ export function MatchSessionClient({
             <StatsTab
               session={selectedSession}
               games={games}
-              playerStats={playerStats}
+              players={players}
               stats={stats}
               profile={profile}
-              locked={locked}
               activeTeams={activeTeams}
               compactMode={compactMode}
             />
@@ -460,7 +401,7 @@ function TeamsTab({
   activeTeams,
   playersByTeam,
   unassigned,
-  gameCount,
+  games,
   locked,
   compactMode,
 }: {
@@ -469,10 +410,11 @@ function TeamsTab({
   activeTeams: MatchTeam[];
   playersByTeam: Record<MatchTeam, MatchPlayer[]>;
   unassigned: MatchParticipant[];
-  gameCount: number;
+  games: MatchGame[];
   locked: boolean;
   compactMode: boolean;
 }) {
+  const gameCount = games.length;
   const teamCountLocked = locked || gameCount > 0;
   const teamColumnsClass = compactMode
     ? "grid-cols-1"
@@ -515,7 +457,7 @@ function TeamsTab({
 
       <div className={`grid gap-3 ${teamColumnsClass}`}>
         {activeTeams.map((team) => (
-          <TeamColumn key={team} team={team} players={playersByTeam[team] ?? []} sessionId={session.id} locked={locked} />
+          <TeamColumn key={team} team={team} players={playersByTeam[team] ?? []} games={games} sessionId={session.id} locked={locked} />
         ))}
       </div>
 
@@ -549,14 +491,26 @@ function TeamsTab({
   );
 }
 
+function playerRecordSummary(player: MatchPlayer, games: MatchGame[]): string | null {
+  const key = matchPlayerKey(player);
+  const gkGames = games.filter((game) => getGameTeams(game).some((team) => team === player.team && gameGkKey(game, team) === key)).length;
+  const parts: string[] = [];
+  if (player.goals > 0) parts.push(`ゴール${player.goals}`);
+  if (player.assists > 0) parts.push(`アシスト${player.assists}`);
+  if (gkGames > 0) parts.push(`GK${gkGames}試合`);
+  return parts.length > 0 ? parts.join("・") : null;
+}
+
 function TeamColumn({
   team,
   players,
+  games,
   sessionId,
   locked,
 }: {
   team: MatchTeam;
   players: MatchPlayer[];
+  games: MatchGame[];
   sessionId: string;
   locked: boolean;
 }) {
@@ -576,6 +530,17 @@ function TeamColumn({
                 router.refresh();
               }}
               key={matchPlayerKey(player)}
+              onSubmit={(event) => {
+                const records = playerRecordSummary(player, games);
+                if (
+                  records &&
+                  !window.confirm(
+                    `${getParticipantDisplayName(player.participant)} には記録（${records}）があります。編成から外すとゴール・アシストは消え、GKの欄は「編成外」になります。よろしいですか？`
+                  )
+                ) {
+                  event.preventDefault();
+                }
+              }}
             >
               <input type="hidden" name="session_id" value={sessionId} />
               <input type="hidden" name="participant_kind" value={player.participant.kind} />
@@ -628,343 +593,6 @@ function AssignButton({
   );
 }
 
-function LiveTab({
-  session,
-  games,
-  playerStats,
-  selectedGame,
-  selectedGameStats,
-  activeTeams,
-  playersByTeam,
-  locked,
-  selectedGameId,
-  onGameChange,
-  onDeleteGame,
-  setupReady,
-  compactMode,
-}: {
-  session: MatchSession;
-  games: MatchGame[];
-  playerStats: MatchPlayerGameStat[];
-  selectedGame: MatchGame | null;
-  selectedGameStats: MatchPlayerGameStat[];
-  activeTeams: MatchTeam[];
-  playersByTeam: Record<MatchTeam, MatchPlayer[]>;
-  locked: boolean;
-  selectedGameId: string;
-  onGameChange: (gameId: string) => void;
-  onDeleteGame: (game: MatchGame) => void;
-  setupReady: boolean;
-  compactMode: boolean;
-}) {
-  const router = useRouter();
-  const [addError, setAddError] = useState<string | null>(null);
-  const [isAdding, setIsAdding] = useState(false);
-  const score = selectedGame ? getGameScore(selectedGame, playerStats) : null;
-  const selectedGameTeams = selectedGame ? getGameTeams(selectedGame) : ([activeTeams[0] ?? "rev1", activeTeams[1] ?? "rev2"] as [MatchTeam, MatchTeam]);
-  const [nextTeamA, nextTeamB] = nextGameTeams(activeTeams, games);
-  const statInputDisabled = !setupReady || !selectedGame || selectedGameTeams.some((team) => !gameGkKey(selectedGame, team)) || locked;
-  const activeSelectedGameStats = selectedGameStats;
-
-  return (
-    <section className="space-y-3">
-      {!setupReady ? (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          未振り分けの参加者がいるか、人数が0人のチームがあります。記録入力は編成完了後に有効になります。
-        </div>
-      ) : null}
-
-      <div className="card p-3">
-        <div className={`mb-3 grid gap-2 ${compactMode ? "" : "grid-cols-[1fr_auto_auto]"}`}>
-          <select className="form-input" value={selectedGameId} onChange={(event) => onGameChange(event.target.value)} disabled={games.length === 0}>
-            {games.length === 0 ? <option value="">試合なし</option> : null}
-            {games.map((game) => (
-              <option value={game.id} key={game.id}>
-                {getGameLabel(game, playerStats)}
-              </option>
-            ))}
-          </select>
-          <form
-            action={async (formData) => {
-              setAddError(null);
-              setIsAdding(true);
-              onGameChange(LATEST_GAME_ID);
-
-              try {
-                await addMatchGameAction(formData);
-                router.refresh();
-              } catch (error) {
-                setAddError(error instanceof Error ? error.message : "試合の追加に失敗しました。");
-              } finally {
-                setIsAdding(false);
-              }
-            }}
-            className={activeTeams.length === 3 ? `grid grid-cols-2 gap-1 ${compactMode ? "" : "min-w-[11rem]"}` : ""}
-            key={`${session.id}-${games.length}-${nextTeamA}-${nextTeamB}`}
-          >
-            <input type="hidden" name="session_id" value={session.id} />
-            {activeTeams.length === 3 ? (
-              <>
-                <select name="team_a" className="form-input h-full px-2 py-1 text-xs" defaultValue={nextTeamA} disabled={locked || isAdding}>
-                  {activeTeams.map((team) => (
-                    <option value={team} key={team}>
-                      {TEAM_LABELS[team]}
-                    </option>
-                  ))}
-                </select>
-                <select name="team_b" className="form-input h-full px-2 py-1 text-xs" defaultValue={nextTeamB} disabled={locked || isAdding}>
-                  {activeTeams.map((team) => (
-                    <option value={team} key={team}>
-                      {TEAM_LABELS[team]}
-                    </option>
-                  ))}
-                </select>
-              </>
-            ) : null}
-            <button type="submit" className={`${activeTeams.length === 3 ? "col-span-2" : ""} btn-secondary h-full w-full whitespace-nowrap`} disabled={locked || isAdding}>
-              <Plus className="h-4 w-4" />
-              試合追加
-            </button>
-          </form>
-          <button
-            type="button"
-            className="btn-danger h-full w-full whitespace-nowrap"
-            disabled={!selectedGame || locked}
-            onClick={() => selectedGame && onDeleteGame(selectedGame)}
-          >
-            <Trash2 className="h-4 w-4" />
-            削除
-          </button>
-        </div>
-        {addError ? <div className="mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{addError}</div> : null}
-        {selectedGame ? (
-          <div className="mb-3 rounded-md bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
-            表示中: 第{selectedGame.game_no}試合 {TEAM_LABELS[selectedGameTeams[0]]} vs {TEAM_LABELS[selectedGameTeams[1]]}
-          </div>
-        ) : null}
-
-        {selectedGame && score ? (
-          <div className="space-y-3" key={selectedGame.id}>
-            <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-3">
-              <ScoreBlock team={selectedGameTeams[0]} value={score[selectedGameTeams[0]]} />
-              <span className="pb-4 text-sm font-semibold text-slate-300">対</span>
-              <ScoreBlock team={selectedGameTeams[1]} value={score[selectedGameTeams[1]]} />
-            </div>
-            <div className={`grid gap-2 ${compactMode ? "grid-cols-1" : "grid-cols-2"}`}>
-              {selectedGameTeams.map((team) => (
-                <GkSelect
-                  key={`${selectedGame.id}-${team}-${gameGkKey(selectedGame, team) ?? "none"}`}
-                  gameId={selectedGame.id}
-                  team={team}
-                  players={playersByTeam[team] ?? []}
-                  defaultValue={gameGkKey(selectedGame, team) ?? ""}
-                  locked={locked}
-                />
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-md bg-slate-50 px-3 py-5 text-center text-sm text-slate-500">試合を追加してください。</div>
-        )}
-      </div>
-
-      {selectedGame && !locked && statInputDisabled ? (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          GOAL/ASSIST入力は両チームのGKを設定してから行えます。
-        </div>
-      ) : null}
-
-      {selectedGame ? (
-        <div className={`grid gap-3 ${compactMode ? "" : "grid-cols-2"}`}>
-          {selectedGameTeams.map((team) => (
-            <PlayerStatPanel
-              key={team}
-              game={selectedGame}
-              team={team}
-              players={playersByTeam[team] ?? []}
-              playerStats={activeSelectedGameStats}
-              disabled={statInputDisabled}
-              compactMode={compactMode}
-            />
-          ))}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-function ScoreBlock({ team, value }: { team: MatchTeam; value: number }) {
-  return (
-    <div className="text-center">
-      <div className={`text-xs font-bold ${TEAM_STYLES[team].text}`}>{TEAM_LABELS[team]}</div>
-      <div className="border-b border-slate-300 py-1 text-5xl font-bold text-ink">{value}</div>
-    </div>
-  );
-}
-
-function GkSelect({
-  gameId,
-  team,
-  players,
-  defaultValue,
-  locked,
-}: {
-  gameId: string;
-  team: MatchTeam;
-  players: MatchPlayer[];
-  defaultValue: string;
-  locked: boolean;
-}) {
-  return (
-    <form action={updateMatchGameGkAction}>
-      <input type="hidden" name="game_id" value={gameId} />
-      <input type="hidden" name="team" value={team} />
-      <span className={`mb-1 block text-xs font-bold ${TEAM_STYLES[team].text}`}>{TEAM_LABELS[team]} GK</span>
-      <select
-        name="gk_key"
-        defaultValue={defaultValue}
-        className="form-input"
-        disabled={locked}
-        onChange={(event) => event.currentTarget.form?.requestSubmit()}
-      >
-        <option value="">未設定</option>
-        {players.map((player) => (
-          <option value={matchPlayerKey(player)} key={matchPlayerKey(player)}>
-            {getParticipantUniformNo(player.participant) ? `${getParticipantUniformNo(player.participant)} ` : ""}
-            {getParticipantDisplayName(player.participant)}
-          </option>
-        ))}
-      </select>
-    </form>
-  );
-}
-
-type PlayerStatKind = "goal" | "assist";
-
-function playerStatValue(playerStats: MatchPlayerGameStat[], playerKey: string, stat: PlayerStatKind): number {
-  const row = playerStats.find((playerStat) => matchStatPlayerKey(playerStat) === playerKey);
-  if (!row) return 0;
-  return stat === "goal" ? row.goals : row.assists;
-}
-
-function PlayerStatPanel({
-  game,
-  team,
-  players,
-  playerStats,
-  disabled,
-  compactMode,
-}: {
-  game: MatchGame;
-  team: MatchTeam;
-  players: MatchPlayer[];
-  playerStats: MatchPlayerGameStat[];
-  disabled: boolean;
-  compactMode: boolean;
-}) {
-  const teamStats = playerStats.filter((stat) => stat.team === team);
-  const totalGoals = teamStats.reduce((sum, stat) => sum + stat.goals, 0);
-  const totalAssists = teamStats.reduce((sum, stat) => sum + stat.assists, 0);
-  const statColumnsClass = compactMode
-    ? "grid-cols-[minmax(0,1fr)_6.5rem_6.5rem]"
-    : "grid-cols-[minmax(0,1fr)_7.5rem_7.5rem]";
-
-
-  return (
-    <div className="card overflow-hidden">
-      <div className={`flex items-center justify-between px-3 py-2 ${TEAM_STYLES[team].chip}`}>
-        <h2 className="text-sm font-bold">{TEAM_LABELS[team]}</h2>
-        <div className="flex gap-3 text-xs font-bold">
-          <span>G {totalGoals}</span>
-          <span>A {totalAssists}</span>
-        </div>
-      </div>
-      <div className={`grid ${statColumnsClass} items-center border-b border-slate-200 bg-slate-50 px-2 py-2 text-[10px] font-bold text-slate-500`}>
-        <span className="px-1">名前</span>
-        <span className="text-center">GOAL</span>
-        <span className="text-center">ASSIST</span>
-      </div>
-      <div className="divide-y divide-slate-100">
-        {players.length === 0 ? (
-          <div className="px-3 py-5 text-center text-sm text-slate-400">選手がいません</div>
-        ) : (
-          players.map((player) => {
-            const key = matchPlayerKey(player);
-            const goalsForPlayer = playerStatValue(teamStats, key, "goal");
-            const assistsForPlayer = playerStatValue(teamStats, key, "assist");
-
-            return (
-              <div className={`grid min-h-16 ${statColumnsClass} items-center gap-1 px-2 py-2`} key={key}>
-                <div className="min-w-0 px-1">
-                  <div className="flex items-center gap-2">
-                    <span className="w-7 shrink-0 text-xs text-slate-400">{getParticipantUniformNo(player.participant) ?? "-"}</span>
-                    <span className="truncate text-sm font-semibold text-ink">{getParticipantDisplayName(player.participant)}</span>
-                  </div>
-                </div>
-                <PlayerStatControls game={game} team={team} playerKey={key} stat="goal" value={goalsForPlayer} disabled={disabled} />
-                <PlayerStatControls game={game} team={team} playerKey={key} stat="assist" value={assistsForPlayer} disabled={disabled} />
-              </div>
-            );
-          })
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PlayerStatControls({
-  game,
-  team,
-  playerKey,
-  stat,
-  value,
-  disabled,
-}: {
-  game: MatchGame;
-  team: MatchTeam;
-  playerKey: string;
-  stat: PlayerStatKind;
-  value: number;
-  disabled: boolean;
-}) {
-  const inputName = stat === "goal" ? "scorer_key" : "assist_key";
-  const addAction = stat === "goal" ? addGoalRecordAction : addAssistRecordAction;
-  const label = stat === "goal" ? "GOAL" : "ASSIST";
-
-  return (
-    <div className="grid grid-cols-[2rem_2.25rem_2rem] items-center justify-center gap-1">
-      <form action={cancelLatestPlayerStatRecordAction}>
-        <input type="hidden" name="game_id" value={game.id} />
-        <input type="hidden" name="team" value={team} />
-        <input type="hidden" name="participant_key" value={playerKey} />
-        <input type="hidden" name="stat" value={stat} />
-        <button
-          type="submit"
-          className="flex h-8 w-8 items-center justify-center rounded-full border border-transparent bg-transparent text-slate-300 transition hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-25"
-          disabled={disabled || value === 0}
-          title={`${label}を1つ戻す`}
-          aria-label={`${label}を1つ戻す`}
-        >
-          <Minus className="h-4 w-4" />
-        </button>
-      </form>
-      <span className={`text-center text-xl font-black tabular-nums ${value > 0 ? "text-ink" : "text-slate-300"}`}>{value}</span>
-      <form action={addAction}>
-        <input type="hidden" name="game_id" value={game.id} />
-        <input type="hidden" name="team" value={team} />
-        <input type="hidden" name={inputName} value={playerKey} />
-        <button
-          type="submit"
-          className={`flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-25 ${TEAM_STYLES[team].text}`}
-          disabled={disabled}
-          title={`${label}を1つ追加`}
-          aria-label={`${label}を1つ追加`}
-        >
-          <Plus className="h-4 w-4" />
-        </button>
-      </form>
-    </div>
-  );
-}
 function DeleteConfirmDialog({
   modal,
   onClose,
@@ -972,15 +600,9 @@ function DeleteConfirmDialog({
   modal: Exclude<DeleteModal, null>;
   onClose: () => void;
 }) {
-  const router = useRouter();
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const isSession = modal.kind === "session";
-  const action = isSession ? deleteMatchSessionAction : deleteMatchGameAction;
-  const title = isSession ? `セッション${modal.session.session_no}を削除` : `第${modal.game.game_no}試合を削除`;
-  const description = isSession
-    ? "このセッションの編成、試合、ゴール、アシスト、GK記録がすべて削除されます。"
-    : "この試合のゴール、アシスト、GK記録が削除されます。";
+  const title = `セッション${modal.session.session_no}を削除`;
+  const description = "このセッションの編成、試合、ゴール、アシスト、GK記録がすべて削除されます。";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4">
@@ -999,34 +621,14 @@ function DeleteConfirmDialog({
         </div>
         <div className="space-y-3 p-4">
           <p className="text-sm text-slate-600">{description}</p>
-          {deleteError ? <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{deleteError}</div> : null}
           <form
             action={async (formData) => {
-              setDeleteError(null);
               setIsDeleting(true);
-
-              if (isSession) {
-                await action(formData);
-                return;
-              }
-
-              try {
-                await action(formData);
-                onClose();
-                router.refresh();
-              } catch (error) {
-                setDeleteError(error instanceof Error ? error.message : "削除に失敗しました。");
-              } finally {
-                setIsDeleting(false);
-              }
+              await deleteMatchSessionAction(formData);
             }}
             className="grid grid-cols-[1fr_2fr] gap-2"
           >
-            {isSession ? (
-              <input type="hidden" name="session_id" value={modal.session.id} />
-            ) : (
-              <input type="hidden" name="game_id" value={modal.game.id} />
-            )}
+            <input type="hidden" name="session_id" value={modal.session.id} />
             <button type="button" onClick={onClose} className="btn-secondary">
               キャンセル
             </button>
@@ -1044,40 +646,66 @@ function DeleteConfirmDialog({
 function StatsTab({
   session,
   games,
-  playerStats,
+  players,
   stats,
   profile,
-  locked,
   activeTeams,
   compactMode,
 }: {
   session: MatchSession;
   games: MatchGame[];
-  playerStats: MatchPlayerGameStat[];
+  players: MatchPlayer[];
   stats: ReturnType<typeof computeSessionStats>;
   profile: Profile;
-  locked: boolean;
   activeTeams: MatchTeam[];
   compactMode: boolean;
 }) {
   const totals = Object.fromEntries(
-    activeTeams.map((team) => [team, games.reduce((sum, game) => sum + getGameScore(game, playerStats)[team], 0)])
+    activeTeams.map((team) => [team, games.reduce((sum, game) => sum + getGameScore(game)[team], 0)])
   ) as Record<MatchTeam, number>;
+  const check = checkSessionSheet(sheetCheckInputFromRows(session, players, games));
+  const problems = describeSheetProblems(check);
+  const scoredGames = games.filter(hasGameScore).length;
 
   return (
     <section className="space-y-3">
       <div className="card p-3">
         <div className="flex justify-between py-1 text-sm">
           <span className="text-slate-500">試合数</span>
-          <span className="font-bold text-ink">{games.length}試合</span>
+          <span className="font-bold text-ink">
+            {games.length}試合{scoredGames < games.length ? `（スコア入力済み ${scoredGames}）` : ""}
+          </span>
         </div>
         {activeTeams.map((team) => (
           <div className="flex justify-between py-1 text-sm" key={team}>
-            <span className="text-slate-500">{TEAM_LABELS[team]} 合計</span>
+            <span className="text-slate-500">
+              {TEAM_LABELS[team]} 合計
+              {getOpponentOwnGoals(session, team) > 0 ? (
+                <span className="ml-1 text-xs text-slate-400">（うち相手OG {getOpponentOwnGoals(session, team)}）</span>
+              ) : null}
+            </span>
             <span className={`font-bold ${TEAM_STYLES[team].text}`}>{totals[team]}点</span>
           </div>
         ))}
       </div>
+
+      {session.status !== "confirmed" ? (
+        problems.length > 0 ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <p className="mb-1 font-bold">まだ確定できません（保存済みの内容でチェックしています）</p>
+            <ul className="space-y-0.5">
+              {problems.map((problem) => (
+                <li key={problem}>・{problem}</li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            得点・GK・スコアのチェックはすべて通っています。
+          </div>
+        )
+      ) : null}
 
       <div className={`grid gap-3 ${compactMode ? "" : "grid-cols-2"}`}>
         {activeTeams.map((team) => (
@@ -1090,13 +718,13 @@ function StatsTab({
           <form action={reopenMatchSessionAction}>
             <input type="hidden" name="session_id" value={session.id} />
             <button type="submit" className="btn-secondary w-full">
-              試合中に戻す
+              下書きに戻す
             </button>
           </form>
         ) : (
           <form action={confirmMatchSessionAction}>
             <input type="hidden" name="session_id" value={session.id} />
-            <button type="submit" className="btn-primary w-full">
+            <button type="submit" className="btn-primary w-full" disabled={!check.canConfirm}>
               <CheckCircle2 className="h-4 w-4" />
               セッションを確定する
             </button>
@@ -1107,8 +735,6 @@ function StatsTab({
           確定操作は管理ユーザーのみ可能です。
         </div>
       )}
-
-      {locked ? null : null}
     </section>
   );
 }

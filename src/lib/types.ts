@@ -89,6 +89,11 @@ export type MatchSession = {
   created_by: string;
   confirmed_by: string | null;
   confirmed_at: string | null;
+  rev1_opponent_own_goals: number;
+  rev2_opponent_own_goals: number;
+  rev3_opponent_own_goals: number;
+  revision: number;
+  updated_by: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -99,6 +104,8 @@ export type MatchSessionPlayer = {
   user_id: string | null;
   guest_id: string | null;
   team: MatchTeam;
+  goals: number;
+  assists: number;
   created_at: string;
 };
 
@@ -108,6 +115,8 @@ export type MatchGame = {
   game_no: number;
   team_a: MatchTeam;
   team_b: MatchTeam;
+  score_a: number | null;
+  score_b: number | null;
   rev1_gk_id: string | null;
   rev2_gk_id: string | null;
   rev3_gk_id: string | null;
@@ -118,7 +127,7 @@ export type MatchGame = {
   updated_at: string;
 };
 
-
+/** 旧方式（リアルタイム入力）の試合ごとの選手成績。移行元としてのみ残している */
 export type MatchPlayerGameStat = {
   id: string;
   game_id: string;

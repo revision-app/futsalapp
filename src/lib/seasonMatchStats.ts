@@ -4,7 +4,6 @@ import type {
   Attendance,
   Event,
   MatchGame,
-  MatchPlayerGameStat,
   MatchSession,
   MatchSessionPlayer,
   MatchTeam,
@@ -22,8 +21,6 @@ export type SeasonUserStats = {
   points: number;
   goals: number;
   assists: number;
-  goalGames: Set<string>;
-  assistGames: Set<string>;
   gkGames: number;
   gkGoalsAgainst: number;
   teamGoalsFor: number;
@@ -49,17 +46,16 @@ export function statAverage(numerator: number, denominator: number, digits = 2):
 
 type TeamScore = Record<MatchTeam, number>;
 
-function scoreForGame(gameId: string, statsByGame: Map<string, MatchPlayerGameStat[]>): TeamScore {
-  const stats = statsByGame.get(gameId) ?? [];
-  return {
-    rev1: stats.filter((stat) => stat.team === "rev1").reduce((sum, stat) => sum + stat.goals, 0),
-    rev2: stats.filter((stat) => stat.team === "rev2").reduce((sum, stat) => sum + stat.goals, 0),
-    rev3: stats.filter((stat) => stat.team === "rev3").reduce((sum, stat) => sum + stat.goals, 0),
-  };
-}
-
 function gameTeams(game: MatchGame): [MatchTeam, MatchTeam] {
   return [game.team_a ?? "rev1", game.team_b ?? "rev2"];
+}
+
+function scoreForGame(game: MatchGame): TeamScore {
+  const score: TeamScore = { rev1: 0, rev2: 0, rev3: 0 };
+  const [teamA, teamB] = gameTeams(game);
+  score[teamA] = game.score_a ?? 0;
+  score[teamB] = game.score_b ?? 0;
+  return score;
 }
 
 function opponentTeam(game: MatchGame, team: MatchTeam): MatchTeam | null {
@@ -132,16 +128,6 @@ export async function getSeasonMatchStats(seasonId: string): Promise<SeasonMatch
     gameRows = (games ?? []) as MatchGame[];
   }
 
-  const gameIds = gameRows.map((game) => game.id);
-  let gameStatRows: MatchPlayerGameStat[] = [];
-  if (gameIds.length > 0) {
-    const { data: playerGameStats } = await admin
-      .from("match_player_game_stats")
-      .select("*")
-      .in("game_id", gameIds);
-    gameStatRows = (playerGameStats ?? []) as MatchPlayerGameStat[];
-  }
-
   const stats = new Map<string, SeasonUserStats>(
     userRows.map((user) => [
       user.id,
@@ -155,8 +141,6 @@ export async function getSeasonMatchStats(seasonId: string): Promise<SeasonMatch
         points: 0,
         goals: 0,
         assists: 0,
-        goalGames: new Set<string>(),
-        assistGames: new Set<string>(),
         gkGames: 0,
         gkGoalsAgainst: 0,
         teamGoalsFor: 0,
@@ -186,21 +170,24 @@ export async function getSeasonMatchStats(seasonId: string): Promise<SeasonMatch
     playersBySession.set(player.session_id, rows);
   }
 
-  const statsByGame = new Map<string, MatchPlayerGameStat[]>();
-  for (const stat of gameStatRows) {
-    const rows = statsByGame.get(stat.game_id) ?? [];
-    rows.push(stat);
-    statsByGame.set(stat.game_id, rows);
-  }
-
   for (const session of sessionRows) {
     const sessionPlayers = playersBySession.get(session.id) ?? [];
     const sessionGames = gamesBySession.get(session.id) ?? [];
     const memberPlayers = sessionPlayers.filter((player): player is MatchSessionPlayer & { user_id: string } => Boolean(player.user_id));
     const teamByUserId = new Map(memberPlayers.map((player) => [player.user_id, player.team]));
 
+    // ゴール・アシストはセッション合計。相手OGは選手ではないので個人成績には入らない
+    for (const player of memberPlayers) {
+      const row = stats.get(player.user_id);
+      if (row) {
+        row.goals += player.goals ?? 0;
+        row.assists += player.assists ?? 0;
+      }
+    }
+
     for (const game of sessionGames) {
-      const score = scoreForGame(game.id, statsByGame);
+      if (game.score_a === null || game.score_b === null) continue;
+      const score = scoreForGame(game);
 
       for (const player of memberPlayers) {
         const row = stats.get(player.user_id);
@@ -236,18 +223,6 @@ export async function getSeasonMatchStats(seasonId: string): Promise<SeasonMatch
           if (row) {
             row.gkGames += 1;
             row.gkGoalsAgainst += score[opponent];
-          }
-        }
-      }
-
-      for (const playerGameStat of statsByGame.get(game.id) ?? []) {
-        if (playerGameStat.user_id && teamByUserId.get(playerGameStat.user_id) === playerGameStat.team) {
-          const row = stats.get(playerGameStat.user_id);
-          if (row) {
-            row.goals += playerGameStat.goals;
-            row.assists += playerGameStat.assists;
-            if (playerGameStat.goals > 0) row.goalGames.add(game.id);
-            if (playerGameStat.assists > 0) row.assistGames.add(game.id);
           }
         }
       }

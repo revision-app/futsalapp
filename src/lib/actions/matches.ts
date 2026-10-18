@@ -3,29 +3,41 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin, requireUser } from "@/lib/auth";
+import { checkSessionSheet, describeSheetProblems, sheetCheckInputFromRows, type SheetCheckInput } from "@/lib/matchStats";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { MatchSession, MatchTeam, Profile } from "@/lib/types";
+import type { MatchGame, MatchSession, MatchSessionPlayer, MatchTeam, Profile } from "@/lib/types";
 
 type ParticipantRef = {
   kind: "member" | "guest";
   id: string;
 };
 
-type MatchStatKind = "goal" | "assist";
+/** 転記画面から保存する内容。participant / GK は "member:<id>" / "guest:<id>" のキーで渡す */
+export type MatchSheetInput = {
+  sessionId: string;
+  revision: number;
+  players: Array<{ key: string; team: MatchTeam; goals: number; assists: number }>;
+  ownGoals: Partial<Record<MatchTeam, number>>;
+  games: Array<{
+    id: string | null;
+    teamA: MatchTeam;
+    teamB: MatchTeam;
+    scoreA: number | null;
+    scoreB: number | null;
+    gkA: string | null;
+    gkB: string | null;
+  }>;
+};
 
-const THREE_TEAM_GAME_SEQUENCE: [MatchTeam, MatchTeam][] = [
-  ["rev1", "rev2"],
-  ["rev2", "rev3"],
-  ["rev3", "rev1"],
-];
+export type SaveMatchSheetResult =
+  | { ok: true; revision: number }
+  | { ok: false; conflict: boolean; message: string };
+
+const MAX_COUNT = 999;
+const REVISION_CONFLICT_CODE = "P0409";
 
 function getString(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
-}
-
-function getOptionalString(formData: FormData, key: string): string | null {
-  const value = getString(formData, key);
-  return value || null;
 }
 
 function isMatchTeam(value: string): value is MatchTeam {
@@ -38,22 +50,6 @@ function parseTeamCount(value: string): 2 | 3 {
 
 function sessionTeams(session: Pick<MatchSession, "team_count">): MatchTeam[] {
   return session.team_count === 3 ? ["rev1", "rev2", "rev3"] : ["rev1", "rev2"];
-}
-
-function gameTeams(game: { team_a?: MatchTeam | null; team_b?: MatchTeam | null }): [MatchTeam, MatchTeam] {
-  return [game.team_a ?? "rev1", game.team_b ?? "rev2"];
-}
-
-function opponentTeam(game: { team_a?: MatchTeam | null; team_b?: MatchTeam | null }, team: MatchTeam): MatchTeam | null {
-  const [teamA, teamB] = gameTeams(game);
-  if (team === teamA) return teamB;
-  if (team === teamB) return teamA;
-  return null;
-}
-
-function nextGameTeams(session: Pick<MatchSession, "team_count">, currentLatestGameNo: number): [MatchTeam, MatchTeam] {
-  if (session.team_count !== 3) return ["rev1", "rev2"];
-  return THREE_TEAM_GAME_SEQUENCE[currentLatestGameNo % THREE_TEAM_GAME_SEQUENCE.length];
 }
 
 function parseParticipantKey(value: string): ParticipantRef {
@@ -75,18 +71,6 @@ function getParticipantRef(formData: FormData, key: string): ParticipantRef {
 
   throw new Error("Invalid participant.");
 }
-
-function getOptionalParticipantRef(formData: FormData, key: string): ParticipantRef | null {
-  const value = getString(formData, key);
-  return value ? parseParticipantKey(value) : null;
-}
-
-function getMatchStatKind(formData: FormData): MatchStatKind {
-  const value = getString(formData, "stat");
-  if (value === "goal" || value === "assist") return value;
-  throw new Error("Invalid stat.");
-}
-
 
 function participantColumns(participant: ParticipantRef): { user_id: string | null; guest_id: string | null } {
   return participant.kind === "member"
@@ -154,40 +138,6 @@ async function requireEditableSession(sessionId: string): Promise<{ currentUser:
   return { currentUser, session };
 }
 
-async function getGameSession(gameId: string): Promise<MatchSession> {
-  const admin = createAdminClient();
-  const { data, error } = await admin
-    .from("match_games")
-    .select("session_id")
-    .eq("id", gameId)
-    .single();
-
-  if (error || !data?.session_id) throw new Error(error?.message ?? "Game not found.");
-  return getSession(data.session_id);
-}
-
-async function ensureGameGksSet(gameId: string) {
-  const admin = createAdminClient();
-  const { data, error } = await admin
-    .from("match_games")
-    .select("team_a, team_b, rev1_gk_id, rev1_gk_guest_id, rev2_gk_id, rev2_gk_guest_id, rev3_gk_id, rev3_gk_guest_id")
-    .eq("id", gameId)
-    .single();
-
-  if (error || !data) throw new Error(error?.message ?? "Game not found.");
-
-  const missingGk = gameTeams(data).some((team) => {
-    if (team === "rev1") return !data.rev1_gk_id && !data.rev1_gk_guest_id;
-    if (team === "rev2") return !data.rev2_gk_id && !data.rev2_gk_guest_id;
-    return !data.rev3_gk_id && !data.rev3_gk_guest_id;
-  });
-
-  if (missingGk) {
-    const session = await getGameSession(gameId);
-    redirectWithError(session.event_id, session.id, "ゴール入力は両チームのGKを設定してから行えます。", "live");
-  }
-}
-
 async function ensureParticipantCanPlay(eventId: string, participant: ParticipantRef, sessionId: string) {
   const admin = createAdminClient();
 
@@ -219,66 +169,20 @@ async function ensureParticipantCanPlay(eventId: string, participant: Participan
   }
 }
 
-async function ensureSessionTeamMember(session: MatchSession, participant: ParticipantRef, team: MatchTeam, tab = "live") {
-  const admin = createAdminClient();
-  let query = admin
-    .from("match_session_players")
-    .select("team")
-    .eq("session_id", session.id)
-    .limit(1);
-
-  query = participant.kind === "member" ? query.eq("user_id", participant.id) : query.eq("guest_id", participant.id);
-  const { data, error } = await query.maybeSingle();
-
-  if (error) throw new Error(error.message);
-  if (data?.team !== team) {
-    redirectWithError(session.event_id, session.id, "選択したチームに所属する選手だけを指定できます。", tab);
-  }
-}
-
 function ensureTeamEnabled(session: MatchSession, team: MatchTeam, tab = "teams") {
   if (!sessionTeams(session).includes(team)) {
     redirectWithError(session.event_id, session.id, "このセッションでは選択できないチームです。", tab);
   }
 }
 
-async function updatePlayerGameStat(
-  gameId: string,
-  team: MatchTeam,
-  participant: ParticipantRef,
-  goalsDelta: number,
-  assistsDelta: number,
-  actorId: string
-) {
+async function touchSession(sessionId: string, actorId: string) {
   const admin = createAdminClient();
-  const { error } = await admin.rpc("update_match_player_game_stat", {
-    p_game_id: gameId,
-    p_team: team,
-    p_user_id: participant.kind === "member" ? participant.id : null,
-    p_guest_id: participant.kind === "guest" ? participant.id : null,
-    p_goals_delta: goalsDelta,
-    p_assists_delta: assistsDelta,
-    p_actor_id: actorId,
-  });
-
+  const { error } = await admin.rpc("touch_match_session", { p_session_id: sessionId, p_actor_id: actorId });
   if (error) throw new Error(error.message);
 }
-async function ensureGameTeamParticipates(gameId: string, team: MatchTeam): Promise<MatchSession> {
-  const admin = createAdminClient();
-  const { data: game, error } = await admin
-    .from("match_games")
-    .select("session_id, team_a, team_b")
-    .eq("id", gameId)
-    .single();
 
-  if (error || !game?.session_id) throw new Error(error?.message ?? "Game not found.");
-  const session = await getSession(game.session_id);
-
-  if (!opponentTeam(game, team)) {
-    redirectWithError(session.event_id, session.id, "この試合に参加しているチームだけ指定できます。", "live");
-  }
-
-  return session;
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_COUNT;
 }
 
 export async function createMatchSessionAction(formData: FormData) {
@@ -318,7 +222,7 @@ export async function createMatchSessionAction(formData: FormData) {
 export async function updateMatchSessionTeamCountAction(formData: FormData) {
   const sessionId = getString(formData, "session_id");
   const teamCount = parseTeamCount(getString(formData, "team_count"));
-  const { session } = await requireEditableSession(sessionId);
+  const { currentUser, session } = await requireEditableSession(sessionId);
   const admin = createAdminClient();
 
   const { count: gameCount, error: gameCountError } = await admin
@@ -333,7 +237,7 @@ export async function updateMatchSessionTeamCountAction(formData: FormData) {
 
   const { error } = await admin
     .from("match_sessions")
-    .update({ team_count: teamCount })
+    .update({ team_count: teamCount, ...(teamCount === 2 ? { rev3_opponent_own_goals: 0 } : {}) })
     .eq("id", sessionId);
 
   if (error) throw new Error(error.message);
@@ -348,6 +252,7 @@ export async function updateMatchSessionTeamCountAction(formData: FormData) {
     if (deleteError) throw new Error(deleteError.message);
   }
 
+  await touchSession(sessionId, currentUser.id);
   revalidatePath(matchesPath(session.event_id, sessionId, "teams"));
 }
 
@@ -355,7 +260,7 @@ export async function assignSessionPlayerAction(formData: FormData) {
   const sessionId = getString(formData, "session_id");
   const participant = getParticipantRef(formData, "participant_key");
   const team = getString(formData, "team");
-  const { session } = await requireEditableSession(sessionId);
+  const { currentUser, session } = await requireEditableSession(sessionId);
   const admin = createAdminClient();
 
   if (!team) {
@@ -400,43 +305,7 @@ export async function assignSessionPlayerAction(formData: FormData) {
     if (error) throw new Error(error.message);
   }
 
-  revalidatePath(matchesPath(session.event_id, sessionId));
-}
-
-export async function addMatchGameAction(formData: FormData) {
-  const sessionId = getString(formData, "session_id");
-  const { session } = await requireEditableSession(sessionId);
-  const admin = createAdminClient();
-
-  const { data: latest, error: latestError } = await admin
-    .from("match_games")
-    .select("game_no")
-    .eq("session_id", sessionId)
-    .order("game_no", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (latestError) throw new Error(latestError.message);
-
-  const [defaultTeamA, defaultTeamB] = nextGameTeams(session, latest?.game_no ?? 0);
-  const teamA = getString(formData, "team_a") || defaultTeamA;
-  const teamB = getString(formData, "team_b") || defaultTeamB;
-
-  if (!isMatchTeam(teamA) || !isMatchTeam(teamB) || teamA === teamB) {
-    redirectWithError(session.event_id, sessionId, "対戦チームの指定が不正です。", "live");
-  }
-
-  ensureTeamEnabled(session, teamA, "live");
-  ensureTeamEnabled(session, teamB, "live");
-
-  const { error } = await admin.from("match_games").insert({
-    session_id: sessionId,
-    game_no: (latest?.game_no ?? 0) + 1,
-    team_a: teamA,
-    team_b: teamB,
-  });
-
-  if (error) throw new Error(error.message);
+  await touchSession(sessionId, currentUser.id);
   revalidatePath(matchesPath(session.event_id, sessionId));
 }
 
@@ -452,158 +321,25 @@ export async function deleteMatchSessionAction(formData: FormData) {
   redirect(matchesPath(session.event_id));
 }
 
-export async function deleteMatchGameAction(formData: FormData) {
-  const gameId = getString(formData, "game_id");
-  const admin = createAdminClient();
-
-  const { data: game, error: gameError } = await admin
-    .from("match_games")
-    .select("id, session_id, game_no")
-    .eq("id", gameId)
-    .single();
-
-  if (gameError || !game) {
-    throw new Error(gameError?.message ?? "Game not found.");
-  }
-
-  const { session } = await requireEditableSession(game.session_id);
-
-  const { error } = await admin.rpc("delete_match_game_and_renumber", { p_game_id: gameId });
-  if (error) throw new Error(error.message);
-
-  revalidatePath(matchesPath(session.event_id, session.id, "live"));
-}
-
-export async function updateMatchGameAction(formData: FormData) {
-  const gameId = getString(formData, "game_id");
-  const session = await getGameSession(gameId);
-  await requireEditableSession(session.id);
-  const rev1Gk = getOptionalParticipantRef(formData, "rev1_gk_key") ?? (getOptionalString(formData, "rev1_gk_id") ? { kind: "member", id: getString(formData, "rev1_gk_id") } as ParticipantRef : null);
-  const rev2Gk = getOptionalParticipantRef(formData, "rev2_gk_key") ?? (getOptionalString(formData, "rev2_gk_id") ? { kind: "member", id: getString(formData, "rev2_gk_id") } as ParticipantRef : null);
-  const rev3Gk = getOptionalParticipantRef(formData, "rev3_gk_key") ?? (getOptionalString(formData, "rev3_gk_id") ? { kind: "member", id: getString(formData, "rev3_gk_id") } as ParticipantRef : null);
-
-  if (rev1Gk) await ensureSessionTeamMember(session, rev1Gk, "rev1");
-  if (rev2Gk) await ensureSessionTeamMember(session, rev2Gk, "rev2");
-  if (rev3Gk) await ensureSessionTeamMember(session, rev3Gk, "rev3");
-
-  const admin = createAdminClient();
-  const { error } = await admin
-    .from("match_games")
-    .update({
-      rev1_gk_id: rev1Gk?.kind === "member" ? rev1Gk.id : null,
-      rev1_gk_guest_id: rev1Gk?.kind === "guest" ? rev1Gk.id : null,
-      rev2_gk_id: rev2Gk?.kind === "member" ? rev2Gk.id : null,
-      rev2_gk_guest_id: rev2Gk?.kind === "guest" ? rev2Gk.id : null,
-      rev3_gk_id: rev3Gk?.kind === "member" ? rev3Gk.id : null,
-      rev3_gk_guest_id: rev3Gk?.kind === "guest" ? rev3Gk.id : null,
-    })
-    .eq("id", gameId);
-
-  if (error) throw new Error(error.message);
-  revalidatePath(matchesPath(session.event_id, session.id));
-}
-
-export async function updateMatchGameGkAction(formData: FormData) {
-  const gameId = getString(formData, "game_id");
-  const team = getString(formData, "team");
-  const gk = getOptionalParticipantRef(formData, "gk_key") ?? (getOptionalString(formData, "gk_id") ? { kind: "member", id: getString(formData, "gk_id") } as ParticipantRef : null);
-
-  if (!isMatchTeam(team)) throw new Error("Invalid team.");
-
-  const session = await getGameSession(gameId);
-  await requireEditableSession(session.id);
-  ensureTeamEnabled(session, team, "live");
-  await ensureGameTeamParticipates(gameId, team);
-  if (gk) await ensureSessionTeamMember(session, gk, team);
-
-  const admin = createAdminClient();
-  const update =
-    team === "rev1"
-      ? {
-          rev1_gk_id: gk?.kind === "member" ? gk.id : null,
-          rev1_gk_guest_id: gk?.kind === "guest" ? gk.id : null,
-        }
-      : team === "rev2"
-        ? {
-            rev2_gk_id: gk?.kind === "member" ? gk.id : null,
-            rev2_gk_guest_id: gk?.kind === "guest" ? gk.id : null,
-          }
-        : {
-            rev3_gk_id: gk?.kind === "member" ? gk.id : null,
-            rev3_gk_guest_id: gk?.kind === "guest" ? gk.id : null,
-          };
-  const { error } = await admin.from("match_games").update(update).eq("id", gameId);
-
-  if (error) throw new Error(error.message);
-  revalidatePath(matchesPath(session.event_id, session.id));
-}
-
-export async function addGoalRecordAction(formData: FormData) {
-  const gameId = getString(formData, "game_id");
-  const team = getString(formData, "team");
-  const scorer = getParticipantRef(formData, "scorer_key");
-
-  if (!isMatchTeam(team)) throw new Error("Invalid team.");
-
-  const session = await ensureGameTeamParticipates(gameId, team);
-  const { currentUser } = await requireEditableSession(session.id);
-  await ensureGameGksSet(gameId);
-  await ensureSessionTeamMember(session, scorer, team);
-  await updatePlayerGameStat(gameId, team, scorer, 1, 0, currentUser.id);
-
-  revalidatePath(matchesPath(session.event_id, session.id));
-}
-
-export async function addAssistRecordAction(formData: FormData) {
-  const gameId = getString(formData, "game_id");
-  const team = getString(formData, "team");
-  const assist = getParticipantRef(formData, "assist_key");
-
-  if (!isMatchTeam(team)) throw new Error("Invalid team.");
-
-  const session = await ensureGameTeamParticipates(gameId, team);
-  const { currentUser } = await requireEditableSession(session.id);
-  await ensureGameGksSet(gameId);
-  await ensureSessionTeamMember(session, assist, team);
-  await updatePlayerGameStat(gameId, team, assist, 0, 1, currentUser.id);
-
-  revalidatePath(matchesPath(session.event_id, session.id));
-}
-
-export async function cancelLatestPlayerStatRecordAction(formData: FormData) {
-  const gameId = getString(formData, "game_id");
-  const team = getString(formData, "team");
-  const stat = getMatchStatKind(formData);
-  const participant = getParticipantRef(formData, "participant_key");
-
-  if (!isMatchTeam(team)) throw new Error("Invalid team.");
-
-  const session = await ensureGameTeamParticipates(gameId, team);
-  const { currentUser } = await requireEditableSession(session.id);
-  await ensureSessionTeamMember(session, participant, team);
-  await updatePlayerGameStat(gameId, team, participant, stat === "goal" ? -1 : 0, stat === "assist" ? -1 : 0, currentUser.id);
-
-  revalidatePath(matchesPath(session.event_id, session.id));
-}
 export async function confirmMatchSessionAction(formData: FormData) {
   const currentUser = await requireAdmin();
   const sessionId = getString(formData, "session_id");
   const session = await getSession(sessionId);
   const admin = createAdminClient();
 
-  const [{ count: playerCount }, { count: gameCount }] = await Promise.all([
-    admin
-      .from("match_session_players")
-      .select("id", { count: "exact", head: true })
-      .eq("session_id", sessionId),
-    admin
-      .from("match_games")
-      .select("id", { count: "exact", head: true })
-      .eq("session_id", sessionId),
+  const [{ data: players, error: playersError }, { data: games, error: gamesError }] = await Promise.all([
+    admin.from("match_session_players").select("*").eq("session_id", sessionId),
+    admin.from("match_games").select("*").eq("session_id", sessionId),
   ]);
 
-  if ((playerCount ?? 0) === 0 || (gameCount ?? 0) === 0) {
-    redirectWithError(session.event_id, sessionId, "編成と試合を登録してから確定してください。", "stats");
+  if (playersError) throw new Error(playersError.message);
+  if (gamesError) throw new Error(gamesError.message);
+
+  const check = checkSessionSheet(
+    sheetCheckInputFromRows(session, (players ?? []) as MatchSessionPlayer[], (games ?? []) as MatchGame[])
+  );
+  if (!check.canConfirm) {
+    redirectWithError(session.event_id, sessionId, `確定できません。${describeSheetProblems(check).join(" / ")}`, "stats");
   }
 
   const { error } = await admin
@@ -616,11 +352,12 @@ export async function confirmMatchSessionAction(formData: FormData) {
     .eq("id", sessionId);
 
   if (error) throw new Error(error.message);
+  await touchSession(sessionId, currentUser.id);
   revalidatePath(matchesPath(session.event_id, sessionId));
 }
 
 export async function reopenMatchSessionAction(formData: FormData) {
-  await requireAdmin();
+  const currentUser = await requireAdmin();
   const sessionId = getString(formData, "session_id");
   const session = await getSession(sessionId);
   const admin = createAdminClient();
@@ -635,5 +372,144 @@ export async function reopenMatchSessionAction(formData: FormData) {
     .eq("id", sessionId);
 
   if (error) throw new Error(error.message);
+  await touchSession(sessionId, currentUser.id);
   revalidatePath(matchesPath(session.event_id, sessionId));
+}
+
+function validateSheet(session: MatchSession, input: MatchSheetInput): string | null {
+  const teams = sessionTeams(session);
+  const seen = new Set<string>();
+
+  for (const player of input.players) {
+    try {
+      parseParticipantKey(player.key);
+    } catch {
+      return "選手の指定が不正です。";
+    }
+    if (seen.has(player.key)) return "同じ選手が2回登録されています。";
+    seen.add(player.key);
+    if (!teams.includes(player.team)) return "このセッションでは選択できないチームです。";
+    if (!isCount(player.goals) || !isCount(player.assists)) return "ゴール数・アシスト数は0以上の整数で入力してください。";
+  }
+
+  for (const team of teams) {
+    const value = input.ownGoals[team] ?? 0;
+    if (!isCount(value)) return "相手OGは0以上の整数で入力してください。";
+  }
+
+  const teamByPlayer = new Map(input.players.map((player) => [player.key, player.team]));
+  for (const game of input.games) {
+    if (!teams.includes(game.teamA) || !teams.includes(game.teamB) || game.teamA === game.teamB) {
+      return "対戦チームの指定が不正です。";
+    }
+    if (session.team_count !== 3 && (game.teamA !== "rev1" || game.teamB !== "rev2")) {
+      return "対戦チームの指定が不正です。";
+    }
+    if ((game.scoreA !== null && !isCount(game.scoreA)) || (game.scoreB !== null && !isCount(game.scoreB))) {
+      return "スコアは0以上の整数で入力してください。";
+    }
+    if ((game.gkA && teamByPlayer.get(game.gkA) !== game.teamA) || (game.gkB && teamByPlayer.get(game.gkB) !== game.teamB)) {
+      return "GKはそのチームに編成された選手から選んでください。";
+    }
+  }
+
+  return null;
+}
+
+function toCheckInput(session: MatchSession, input: MatchSheetInput): SheetCheckInput {
+  return {
+    teams: sessionTeams(session),
+    players: input.players.map((player) => ({ key: player.key, team: player.team, goals: player.goals })),
+    ownGoals: input.ownGoals,
+    games: input.games.map((game, index) => ({ ...game, gameNo: index + 1 })),
+  };
+}
+
+function gkColumns(key: string | null): { user_id: string | null; guest_id: string | null } {
+  return key ? participantColumns(parseParticipantKey(key)) : { user_id: null, guest_id: null };
+}
+
+/**
+ * 転記画面の内容（編成・試合・ゴール/アシスト・相手OG）をまとめて保存する。
+ * 下書きのうちはチェックが通らなくても保存できる。確定済みセッション（管理者のみ）はチェックが通らないと保存できない。
+ * 画面を開いた後に他の人が保存していた場合は、上書きせずに conflict を返す。
+ */
+export async function saveMatchSheetAction(input: MatchSheetInput): Promise<SaveMatchSheetResult> {
+  const { currentUser, session } = await requireEditableSession(input.sessionId);
+
+  const invalid = validateSheet(session, input);
+  if (invalid) return { ok: false, conflict: false, message: invalid };
+
+  if (session.status === "confirmed") {
+    const check = checkSessionSheet(toCheckInput(session, input));
+    if (!check.canConfirm) {
+      return {
+        ok: false,
+        conflict: false,
+        message: `確定済みのセッションは、チェックが通る内容でしか保存できません。${describeSheetProblems(check).join(" / ")}`,
+      };
+    }
+  }
+
+  const admin = createAdminClient();
+  const memberIds = input.players
+    .map((player) => parseParticipantKey(player.key))
+    .filter((participant) => participant.kind === "member")
+    .map((participant) => participant.id);
+
+  if (memberIds.length > 0) {
+    const { data: members, error: membersError } = await admin
+      .from("profiles")
+      .select("id")
+      .in("id", memberIds)
+      .eq("is_active", true);
+    if (membersError) throw new Error(membersError.message);
+    if ((members ?? []).length !== memberIds.length) {
+      return { ok: false, conflict: false, message: "登録されていないメンバーが含まれています。" };
+    }
+  }
+
+  const { data: revision, error } = await admin.rpc("save_match_session_sheet", {
+    p_session_id: session.id,
+    p_expected_revision: input.revision,
+    p_actor_id: currentUser.id,
+    p_players: input.players.map((player) => ({
+      ...participantColumns(parseParticipantKey(player.key)),
+      team: player.team,
+      goals: player.goals,
+      assists: player.assists,
+    })),
+    p_games: input.games.map((game) => {
+      const gkA = gkColumns(game.gkA);
+      const gkB = gkColumns(game.gkB);
+      return {
+        id: game.id,
+        team_a: game.teamA,
+        team_b: game.teamB,
+        score_a: game.scoreA,
+        score_b: game.scoreB,
+        gk_a_user_id: gkA.user_id,
+        gk_a_guest_id: gkA.guest_id,
+        gk_b_user_id: gkB.user_id,
+        gk_b_guest_id: gkB.guest_id,
+      };
+    }),
+    p_own_goals: input.ownGoals,
+  });
+
+  if (error) {
+    if (error.code === REVISION_CONFLICT_CODE) {
+      return {
+        ok: false,
+        conflict: true,
+        message: "他の人が先に更新しています。画面を再読み込みして、最新の内容を確認してから入力し直してください。",
+      };
+    }
+    return { ok: false, conflict: false, message: `保存に失敗しました: ${error.message}` };
+  }
+
+  revalidatePath(matchesPath(session.event_id, session.id));
+  revalidatePath(`/events/${session.event_id}`);
+  revalidatePath(`/mvp/${session.event_id}`);
+  return { ok: true, revision: revision as number };
 }

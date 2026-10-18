@@ -9,7 +9,6 @@ import type {
   EventGuest,
   Event,
   MatchGame,
-  MatchPlayerGameStat,
   MatchSession,
   MatchSessionPlayer,
   Profile,
@@ -24,8 +23,9 @@ type AttendanceWithProfile = Attendance & { profiles: Profile | null };
 type PlayerWithParticipant = MatchSessionPlayer & { profiles: Profile | null; event_guests: EventGuest | null };
 type DisplayMode = "tablet" | "phone";
 
-function normalizeTab(value?: string): "teams" | "live" | "stats" {
-  if (value === "live" || value === "stats") return value;
+function normalizeTab(value?: string): "teams" | "sheet" | "stats" {
+  if (value === "sheet" || value === "live") return "sheet";
+  if (value === "stats") return "stats";
   return "teams";
 }
 
@@ -42,7 +42,7 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
   const profile = await requireUser();
   const admin = createAdminClient();
 
-  const [{ data: event }, { data: attendanceRows }, { data: guestRows }, { data: sessionRows }] = await Promise.all([
+  const [{ data: event }, { data: attendanceRows }, { data: guestRows }, { data: sessionRows }, { data: memberRows }] = await Promise.all([
     admin.from("events").select("*").eq("id", eventId).single(),
     admin
       .from("attendances")
@@ -59,6 +59,7 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
       .select("*")
       .eq("event_id", eventId)
       .order("session_no", { ascending: true }),
+    admin.from("profiles").select("*").eq("is_active", true),
   ]);
 
   if (!event) {
@@ -77,7 +78,6 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
 
   let players: (MatchSessionPlayer & { participant: MatchParticipant })[] = [];
   let games: MatchGame[] = [];
-  let playerStats: MatchPlayerGameStat[] = [];
 
   if (selectedSession) {
     const [{ data: playerRows }, { data: gameRows }] = await Promise.all([
@@ -112,19 +112,6 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
     );
 
     games = (gameRows ?? []) as MatchGame[];
-
-    if (games.length > 0) {
-      const { data: statRows } = await admin
-        .from("match_player_game_stats")
-        .select("*")
-        .in(
-          "game_id",
-          games.map((game) => game.id)
-        )
-        .order("created_at", { ascending: true });
-
-      playerStats = (statRows ?? []) as MatchPlayerGameStat[];
-    }
   }
 
   const attendees: MatchParticipant[] = ((attendanceRows ?? []) as AttendanceWithProfile[])
@@ -142,6 +129,11 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
 
   attendees.sort(compareParticipants);
 
+  // 転記画面では、出席になっていないメンバーも編成に追加できる（紙の内容を正とする）
+  const members: MatchParticipant[] = ((memberRows ?? []) as Profile[])
+    .map((row) => ({ kind: "member" as const, id: row.id, profile: row }))
+    .sort(compareParticipants);
+
   return (
     <AppShell profile={profile} active="events" width={displayMode === "phone" ? "compact" : "wide"}>
       <MatchSessionClient
@@ -152,7 +144,7 @@ export default async function MatchResultsPage({ params, searchParams }: MatchRe
         selectedSession={selectedSession}
         players={players}
         games={games}
-        playerStats={playerStats}
+        members={members}
         initialTab={normalizeTab(query.tab)}
         initialDisplayMode={displayMode}
         error={query.error}
