@@ -1,6 +1,6 @@
 import { Shield, UserCheck, UserX } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
-import { updateUserActiveAction, updateUserRoleAction } from "@/lib/actions/admin";
+import { updateUserActiveAction, updateUserPostAction, updateUserRoleAction } from "@/lib/actions/admin";
 import { requireAdmin } from "@/lib/auth";
 import { getProfileDisplayName, getProfileLoginId } from "@/lib/profile";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -54,6 +54,21 @@ export default async function AdminUsersPage() {
                   ) : null}
                 </div>
               </div>
+
+              <form action={updateUserPostAction} className="mt-3 flex gap-2">
+                <input type="hidden" name="user_id" value={user.id} />
+                <input
+                  name="post"
+                  defaultValue={user.post ?? ""}
+                  maxLength={30}
+                  placeholder="役職（代表・幹事など）"
+                  className="form-input"
+                  aria-label={`${getProfileDisplayName(user)} の役職`}
+                />
+                <button className="btn-secondary shrink-0" type="submit">
+                  保存
+                </button>
+              </form>
 
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <form action={updateUserRoleAction}>

@@ -30,6 +30,24 @@ export async function updateUserRoleAction(formData: FormData) {
   revalidatePath("/admin/users");
 }
 
+/** 役職（個人成績の POST 欄）。空欄で消す */
+export async function updateUserPostAction(formData: FormData) {
+  await requireAdmin();
+  const userId = getString(formData, "user_id");
+  const post = getString(formData, "post").slice(0, 30);
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("profiles")
+    .update({ post: post || null })
+    .eq("id", userId);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/users");
+  revalidatePath("/stats");
+}
+
 export async function updateUserActiveAction(formData: FormData) {
   const currentUser = await requireAdmin();
   const userId = getString(formData, "user_id");

@@ -1,19 +1,25 @@
 import Link from "next/link";
-import { CalendarDays, Layers3, LogOut, MessageSquareText, Settings } from "lucide-react";
+import { CalendarDays, Layers3, LogOut, MessageSquareText, Settings, Trophy } from "lucide-react";
 import { signOutAction } from "@/lib/actions/auth";
+import { canViewPersonalStats } from "@/lib/appSettings";
 import { getProfileDisplayName } from "@/lib/profile";
 import type { Profile } from "@/lib/types";
 
 type AppShellProps = {
   profile: Profile;
-  active: "events" | "seasons" | "admin" | "mvp" | "feedback";
+  active: "events" | "seasons" | "stats" | "admin" | "mvp" | "feedback";
   width?: "default" | "wide" | "compact";
   children: React.ReactNode;
 };
 
-export function AppShell({ profile, active, width = "default", children }: AppShellProps) {
+const NAV_COLUMNS: Record<number, string> = { 3: "grid-cols-3", 4: "grid-cols-4", 5: "grid-cols-5" };
+
+export async function AppShell({ profile, active, width = "default", children }: AppShellProps) {
   const shellWidth =
     width === "wide" ? "max-w-6xl" : width === "compact" ? "max-w-md" : "max-w-3xl";
+  // 個人成績タブは、管理者が「メンバーに表示」にしている間だけ一般メンバーにも出す
+  const showStats = await canViewPersonalStats(profile);
+  const navCount = 3 + (showStats ? 1 : 0) + (profile.role === "admin" ? 1 : 0);
 
   return (
     <div className="min-h-screen pb-20">
@@ -49,13 +55,18 @@ export function AppShell({ profile, active, width = "default", children }: AppSh
       <main className={`mx-auto ${shellWidth} overflow-x-auto px-4 py-5`}>{children}</main>
 
       <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 shadow-[0_-8px_24px_rgba(15,23,42,0.06)] backdrop-blur">
-        <div className={`mx-auto grid ${shellWidth} ${profile.role === "admin" ? "grid-cols-4" : "grid-cols-3"}`}>
+        <div className={`mx-auto grid ${shellWidth} ${NAV_COLUMNS[navCount]}`}>
           <NavItem href="/events" label="イベント" active={active === "events" || active === "mvp"}>
             <CalendarDays className="h-5 w-5" />
           </NavItem>
           <NavItem href="/seasons" label="シーズン" active={active === "seasons"}>
             <Layers3 className="h-5 w-5" />
           </NavItem>
+          {showStats ? (
+            <NavItem href="/stats" label="成績" active={active === "stats"}>
+              <Trophy className="h-5 w-5" />
+            </NavItem>
+          ) : null}
           <NavItem href="/feedback" label="ご意見" active={active === "feedback"}>
             <MessageSquareText className="h-5 w-5" />
           </NavItem>
