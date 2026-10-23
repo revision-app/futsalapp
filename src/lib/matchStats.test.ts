@@ -23,6 +23,7 @@ function profile(id: string, uniformNo: number): Profile {
     uniform_no: uniformNo,
     reading: null,
     login_id: id,
+    post: null,
     role: "member",
     is_active: true,
     must_change_password: false,

@@ -13,6 +13,7 @@ export type Profile = {
   uniform_no: number | null;
   reading: string | null;
   login_id: string | null;
+  post: string | null;
   role: MemberRole;
   is_active: boolean;
   must_change_password: boolean;
@@ -59,6 +60,13 @@ export type EventGuest = {
   display_name: string;
   created_by: string;
   created_at: string;
+  updated_at: string;
+};
+
+export type AppSettings = {
+  id: boolean;
+  stats_visible_to_members: boolean;
+  updated_by: string | null;
   updated_at: string;
 };
 

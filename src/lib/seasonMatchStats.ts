@@ -21,6 +21,10 @@ export type SeasonUserStats = {
   points: number;
   goals: number;
   assists: number;
+  /** Gぽいん: ゴールした活動日（1日に何点取っても1） */
+  goalDays: Set<string>;
+  /** Aぽいん: アシストした活動日（1日に何本アシストしても1） */
+  assistDays: Set<string>;
   gkGames: number;
   gkGoalsAgainst: number;
   teamGoalsFor: number;
@@ -141,6 +145,8 @@ export async function getSeasonMatchStats(seasonId: string): Promise<SeasonMatch
         points: 0,
         goals: 0,
         assists: 0,
+        goalDays: new Set<string>(),
+        assistDays: new Set<string>(),
         gkGames: 0,
         gkGoalsAgainst: 0,
         teamGoalsFor: 0,
@@ -182,6 +188,8 @@ export async function getSeasonMatchStats(seasonId: string): Promise<SeasonMatch
       if (row) {
         row.goals += player.goals ?? 0;
         row.assists += player.assists ?? 0;
+        if ((player.goals ?? 0) > 0) row.goalDays.add(session.event_id);
+        if ((player.assists ?? 0) > 0) row.assistDays.add(session.event_id);
       }
     }
 

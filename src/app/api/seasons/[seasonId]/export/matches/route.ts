@@ -41,6 +41,8 @@ export async function GET(_request: Request, context: RouteContext) {
     "1試合あたり総失点",
     "勝ち点",
     "平均勝ち点",
+    "Gぽいん",
+    "Aぽいん",
   ];
 
   const rows = [
@@ -69,6 +71,8 @@ export async function GET(_request: Request, context: RouteContext) {
       statAverage(row.teamGoalsAgainst, row.games),
       String(row.points),
       statAverage(row.points, row.games),
+      String(row.goalDays.size),
+      String(row.assistDays.size),
     ]),
   ];
 
