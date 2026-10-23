@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, ListOrdered, Table2 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { setStatsVisibilityAction } from "@/lib/actions/settings";
 import { getStatsVisibleToMembers } from "@/lib/appSettings";
@@ -13,8 +13,18 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type { Season } from "@/lib/types";
 
 type StatsPageProps = {
-  searchParams?: Promise<{ season?: string }>;
+  searchParams?: Promise<{ season?: string; view?: string }>;
 };
+
+type StatsView = "ranking" | "list";
+
+function statsHref(seasonId: string | undefined, view: StatsView): string {
+  const params = new URLSearchParams();
+  if (seasonId) params.set("season", seasonId);
+  if (view !== "ranking") params.set("view", view);
+  const query = params.toString();
+  return `/stats${query ? `?${query}` : ""}`;
+}
 
 function todayJst(): string {
   return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date());
@@ -43,12 +53,14 @@ export default async function StatsPage({ searchParams }: StatsPageProps) {
   const { data: seasonRows } = await admin.from("seasons").select("*").order("start_date", { ascending: false });
   const seasons = (seasonRows ?? []) as Season[];
   const season = pickSeason(seasons, query.season);
+  // 初期表示はランキング
+  const view: StatsView = query.view === "list" ? "list" : "ranking";
   const result = season ? await getSeasonMatchStats(season.id) : null;
 
   return (
     <AppShell profile={profile} active="stats" width="wide">
       <div className="mb-4">
-        <h1 className="text-xl font-bold text-ink">個人成績</h1>
+        <h1 className="text-xl font-bold text-ink">成績</h1>
         <p className="text-sm text-slate-500">
           {season ? `${season.name}（${formatDateJst(season.start_date)} - ${formatDateJst(season.end_date)}）` : "シーズンがありません"}
         </p>
@@ -61,7 +73,7 @@ export default async function StatsPage({ searchParams }: StatsPageProps) {
           {seasons.map((item) => (
             <Link
               key={item.id}
-              href={`/stats?season=${item.id}`}
+              href={statsHref(item.id, view)}
               className={`rounded-full border px-3 py-1 text-sm font-semibold ${
                 item.id === season?.id ? "border-primary bg-primary text-white" : "border-slate-300 bg-white text-slate-600 hover:border-primary/40"
               }`}
@@ -73,14 +85,36 @@ export default async function StatsPage({ searchParams }: StatsPageProps) {
       ) : null}
 
       {result ? (
-        <div className="space-y-5">
-          <PersonalStatsTable stats={result.stats} eventCount={result.events.length} />
-          <Rankings stats={result.stats} />
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 rounded-lg border border-slate-200 bg-white p-1">
+            <ViewTab href={statsHref(season?.id, "ranking")} active={view === "ranking"} icon={<ListOrdered className="h-4 w-4" />} label="ランキング" />
+            <ViewTab href={statsHref(season?.id, "list")} active={view === "list"} icon={<Table2 className="h-4 w-4" />} label="個人成績一覧" />
+          </div>
+          {view === "ranking" ? (
+            <Rankings stats={result.stats} />
+          ) : (
+            <PersonalStatsTable stats={result.stats} eventCount={result.events.length} />
+          )}
         </div>
       ) : (
         <div className="card p-6 text-center text-sm text-slate-500">シーズンを作成すると、ここに成績が表示されます。</div>
       )}
     </AppShell>
+  );
+}
+
+function ViewTab({ href, active, icon, label }: { href: string; active: boolean; icon: React.ReactNode; label: string }) {
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className={`flex h-10 items-center justify-center gap-1.5 rounded-md text-sm font-semibold transition ${
+        active ? "bg-primary text-white" : "text-slate-500 hover:bg-slate-50 hover:text-primary"
+      }`}
+    >
+      {icon}
+      {label}
+    </Link>
   );
 }
 
@@ -189,7 +223,6 @@ function Rankings({ stats }: { stats: SeasonUserStats[] }) {
 
   return (
     <section>
-      <h2 className="mb-2 text-sm font-bold text-ink">ランキング</h2>
       <div className="grid gap-3 lg:grid-cols-3">
         <RankingTable title="ゴールランキング" valueLabel="ゴール数" rows={goals} renderValue={(row) => `${row.stats.goals} G`} />
         <RankingTable title="アシストランキング" valueLabel="アシスト数" rows={assists} renderValue={(row) => `${row.stats.assists} A`} />
